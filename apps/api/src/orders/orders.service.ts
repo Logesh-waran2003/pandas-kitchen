@@ -1,0 +1,317 @@
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from "@nestjs/common"
+import { PrismaService } from "../prisma/prisma.service"
+import { CreateOrderDto } from "./dto/create-order.dto"
+import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
+import { OrderStatus, OrderType } from "@prisma/client"
+import { Decimal } from "@prisma/client/runtime/library"
+
+@Injectable()
+export class OrdersService {
+  constructor(private prisma: PrismaService) {}
+
+  async listOrders(restaurantId: string, branchId?: string, status?: string, date?: string) {
+    const where: any = { restaurantId }
+
+    if (branchId) where.branchId = branchId
+    if (status) where.status = status as OrderStatus
+
+    if (date) {
+      const start = new Date(date)
+      const end = new Date(date)
+      end.setDate(end.getDate() + 1)
+      where.createdAt = { gte: start, lt: end }
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where,
+      include: {
+        table: { select: { id: true, tableNumber: true } },
+        branch: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phone: true } },
+        items: {
+          include: {
+            menuItem: { select: { id: true, name: true } },
+            addons: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    })
+
+    return orders.map(this.serializeOrder)
+  }
+
+  async getOrder(restaurantId: string, id: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: {
+        table: { select: { id: true, tableNumber: true } },
+        branch: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phone: true } },
+        items: {
+          include: {
+            menuItem: { select: { id: true, name: true, imageUrl: true } },
+            addons: true,
+          },
+        },
+        payments: true,
+      },
+    })
+
+    if (!order) throw new NotFoundException("Order not found")
+    if (order.restaurantId !== restaurantId) throw new ForbiddenException()
+
+    return this.serializeOrder(order)
+  }
+
+  async createOrder(restaurantId: string, userId: string, dto: CreateOrderDto) {
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException("Order must have at least one item")
+    }
+
+    const branch = await this.prisma.branch.findUnique({ where: { id: dto.branchId } })
+    if (!branch || branch.restaurantId !== restaurantId) {
+      throw new ForbiddenException("Branch not found or access denied")
+    }
+
+    // Validate customer if provided
+    if (dto.customerId) {
+      const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } })
+      if (!customer || customer.restaurantId !== restaurantId) {
+        throw new NotFoundException("Customer not found")
+      }
+    }
+
+    // Fetch all menu items upfront
+    const menuItemIds = dto.items.map((i) => i.menuItemId)
+    const menuItems = await this.prisma.menuItem.findMany({
+      where: { id: { in: menuItemIds }, restaurantId },
+    })
+    const menuItemMap = new Map(menuItems.map((m) => [m.id, m]))
+
+    for (const item of dto.items) {
+      if (!menuItemMap.has(item.menuItemId)) {
+        throw new NotFoundException(`Menu item ${item.menuItemId} not found`)
+      }
+    }
+
+    // Fetch all variants upfront (if any)
+    const variantIds = dto.items.map((i) => i.variantId).filter(Boolean) as string[]
+    const variants = variantIds.length
+      ? await this.prisma.menuItemVariant.findMany({ where: { id: { in: variantIds } } })
+      : []
+    const variantMap = new Map(variants.map((v) => [v.id, v]))
+
+    // Fetch all addons upfront (if any)
+    const allAddonIds = dto.items.flatMap((i) => i.addonIds ?? [])
+    const addons = allAddonIds.length
+      ? await this.prisma.menuAddon.findMany({ where: { id: { in: allAddonIds } } })
+      : []
+    const addonMap = new Map(addons.map((a) => [a.id, a]))
+
+    // Build line items
+    const lineItems = dto.items.map((item) => {
+      const menuItem = menuItemMap.get(item.menuItemId)!
+
+      // Use variant price if provided, else menu item base price
+      let unitPrice = new Decimal(menuItem.price)
+      let variantName: string | undefined
+      if (item.variantId) {
+        const variant = variantMap.get(item.variantId)
+        if (!variant || variant.menuItemId !== item.menuItemId) {
+          throw new NotFoundException(`Variant ${item.variantId} not found for item ${item.menuItemId}`)
+        }
+        unitPrice = new Decimal(variant.price)
+        variantName = variant.name
+      }
+
+      // Compute addons total
+      const itemAddons = (item.addonIds ?? []).map((addonId) => {
+        const addon = addonMap.get(addonId)
+        if (!addon) throw new NotFoundException(`Addon ${addonId} not found`)
+        return { addonId, name: addon.name, price: new Decimal(addon.price) }
+      })
+      const addonsTotal = itemAddons.reduce((sum, a) => sum.add(a.price), new Decimal(0))
+
+      const lineTotal = unitPrice.add(addonsTotal).mul(item.quantity)
+
+      return {
+        menuItemId: item.menuItemId,
+        variantId: item.variantId ?? null,
+        variantName: variantName ?? null,
+        quantity: item.quantity,
+        notes: item.notes,
+        unitPrice,
+        totalPrice: lineTotal,
+        addons: itemAddons,
+      }
+    })
+
+    // Pricing calculations
+    const subtotal = lineItems.reduce((sum, i) => sum.add(i.totalPrice), new Decimal(0))
+    const discountAmt = this.calcDiscount(subtotal, dto.discount ?? 0, dto.discountType ?? "FLAT")
+    const afterDiscount = subtotal.sub(discountAmt)
+    const serviceChargeRate = new Decimal(dto.serviceChargePercent ?? 0).div(100)
+    const serviceChargeAmt = afterDiscount.mul(serviceChargeRate).toDecimalPlaces(2)
+    const gstRate = new Decimal(dto.gstRate ?? 5)
+    const gstAmt = afterDiscount.add(serviceChargeAmt).mul(gstRate.div(100)).toDecimalPlaces(2)
+    const total = afterDiscount.add(serviceChargeAmt).add(gstAmt)
+
+    const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
+
+    const order = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.order.create({
+        data: {
+          restaurantId,
+          branchId: dto.branchId,
+          tableId: dto.tableId,
+          customerId: dto.customerId ?? null,
+          orderNumber,
+          orderType: dto.orderType ?? OrderType.DINE_IN,
+          notes: dto.notes,
+          subtotal,
+          tax: gstAmt,
+          discount: discountAmt,
+          discountType: dto.discountType ?? "FLAT",
+          serviceCharge: serviceChargeAmt,
+          gstRate,
+          gstAmount: gstAmt,
+          total,
+          paymentStatus: "UNPAID",
+          createdById: userId,
+          items: {
+            create: lineItems.map((l) => ({
+              menuItemId: l.menuItemId,
+              variantId: l.variantId,
+              variantName: l.variantName,
+              quantity: l.quantity,
+              notes: l.notes,
+              unitPrice: l.unitPrice,
+              totalPrice: l.totalPrice,
+              addons: {
+                create: l.addons.map((a) => ({
+                  addonId: a.addonId,
+                  name: a.name,
+                  price: a.price,
+                })),
+              },
+            })),
+          },
+        },
+        include: {
+          table: { select: { id: true, tableNumber: true } },
+          branch: { select: { id: true, name: true } },
+          customer: { select: { id: true, name: true, phone: true } },
+          items: {
+            include: {
+              menuItem: { select: { id: true, name: true } },
+              addons: true,
+            },
+          },
+        },
+      })
+
+      // Update customer stats if linked
+      if (dto.customerId) {
+        await tx.customer.update({
+          where: { id: dto.customerId },
+          data: {
+            totalOrders: { increment: 1 },
+            totalSpent: { increment: total },
+          },
+        })
+      }
+
+      return created
+    })
+
+    return this.serializeOrder(order)
+  }
+
+  async updateStatus(restaurantId: string, id: string, dto: UpdateOrderStatusDto) {
+    await this.assertOwner(restaurantId, id)
+    const order = await this.prisma.order.update({
+      where: { id },
+      data: { status: dto.status },
+      include: {
+        table: { select: { id: true, tableNumber: true } },
+        branch: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phone: true } },
+        items: {
+          include: {
+            menuItem: { select: { id: true, name: true } },
+            addons: true,
+          },
+        },
+      },
+    })
+    return this.serializeOrder(order)
+  }
+
+  async cancelOrder(restaurantId: string, id: string) {
+    const order = await this.assertOwner(restaurantId, id)
+    if (order.status === "PAID") {
+      throw new BadRequestException("Cannot cancel a paid order")
+    }
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: { status: "CANCELLED" },
+      include: {
+        table: { select: { id: true, tableNumber: true } },
+        branch: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phone: true } },
+        items: {
+          include: {
+            menuItem: { select: { id: true, name: true } },
+            addons: true,
+          },
+        },
+      },
+    })
+    return this.serializeOrder(updated)
+  }
+
+  private calcDiscount(subtotal: Decimal, discount: number, type: string): Decimal {
+    if (!discount || discount <= 0) return new Decimal(0)
+    if (type === "PERCENT") {
+      return subtotal.mul(new Decimal(discount).div(100)).toDecimalPlaces(2)
+    }
+    return new Decimal(discount)
+  }
+
+  private async assertOwner(restaurantId: string, id: string) {
+    const order = await this.prisma.order.findUnique({ where: { id } })
+    if (!order) throw new NotFoundException("Order not found")
+    if (order.restaurantId !== restaurantId) throw new ForbiddenException()
+    return order
+  }
+
+  private serializeOrder(order: any) {
+    return {
+      ...order,
+      subtotal: Number(order.subtotal),
+      tax: Number(order.tax),
+      discount: Number(order.discount),
+      serviceCharge: Number(order.serviceCharge),
+      gstRate: Number(order.gstRate),
+      gstAmount: Number(order.gstAmount),
+      total: Number(order.total),
+      totalAmount: Number(order.total),
+      tableNumber: order.table?.tableNumber ?? null,
+      branchName: order.branch?.name ?? null,
+      items: order.items?.map((i: any) => ({
+        ...i,
+        name: i.menuItem?.name ?? "",
+        unitPrice: Number(i.unitPrice),
+        totalPrice: Number(i.totalPrice),
+        addons: i.addons?.map((a: any) => ({ ...a, price: Number(a.price) })) ?? [],
+      })) ?? [],
+      payments: order.payments?.map((p: any) => ({ ...p, amount: Number(p.amount) })) ?? [],
+    }
+  }
+}

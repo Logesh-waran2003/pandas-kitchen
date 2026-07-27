@@ -1,0 +1,6 @@
+{
+  "name": "@pandas-kitchen/config",
+  "version": "0.1.0",
+  "main": "./index.js",
+  "files": ["eslint.js", "tailwind.js", "index.js"]
+}

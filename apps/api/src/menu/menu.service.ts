@@ -85,8 +85,10 @@ export class MenuService {
         price: dto.price,
         imageUrl: dto.imageUrl,
         isVeg: dto.isVeg ?? false,
+        allergens: dto.allergens ?? [],
         preparationTime: dto.preparationTime,
         sortOrder: dto.sortOrder ?? 0,
+        departmentId: dto.departmentId ?? null,
       },
       include: { category: { select: { id: true, name: true } } },
     })
@@ -105,8 +107,10 @@ export class MenuService {
         ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
         ...(dto.isAvailable !== undefined && { isAvailable: dto.isAvailable }),
         ...(dto.isVeg !== undefined && { isVeg: dto.isVeg }),
+        ...(dto.allergens !== undefined && { allergens: dto.allergens }),
         ...(dto.preparationTime !== undefined && { preparationTime: dto.preparationTime }),
         ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
+        ...(dto.departmentId !== undefined && { departmentId: dto.departmentId }),
       },
       include: { category: { select: { id: true, name: true } } },
     })

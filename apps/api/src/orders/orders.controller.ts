@@ -46,13 +46,24 @@ export class OrdersController {
   @ApiQuery({ name: "branchId", required: false })
   @ApiQuery({ name: "status", required: false })
   @ApiQuery({ name: "date", required: false, description: "YYYY-MM-DD" })
+  @ApiQuery({ name: "page", required: false, description: "Page number (default: 1)" })
+  @ApiQuery({ name: "limit", required: false, description: "Items per page (default: 20, max: 100)" })
   listOrders(
     @CurrentUser("restaurantId") restaurantId: string,
     @Query("branchId") branchId?: string,
     @Query("status") status?: string,
     @Query("date") date?: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
   ) {
-    return this.ordersService.listOrders(restaurantId, branchId, status, date)
+    return this.ordersService.listOrders(
+      restaurantId,
+      branchId,
+      status,
+      date,
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
+    )
   }
 
   @Get(":id/receipt")

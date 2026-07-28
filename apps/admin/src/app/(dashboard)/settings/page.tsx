@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react"
 import { apiFetch } from "@/lib/api"
 import { toast } from "sonner"
-import { Plus, Pencil, X, Users, Building2, Store, Shield } from "lucide-react"
+import { Plus, Pencil, X, Users, Building2, Store, Shield, Trash2, ChefHat } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Restaurant { id?: string; name: string; themeColor: string; logoUrl?: string }
 interface Branch { id: string; name: string; isActive: boolean }
+interface Department { id: string; name: string; branchId: string }
 type StaffRole = "RESTAURANT_OWNER" | "BRANCH_MANAGER" | "CASHIER" | "CAPTAIN" | "KITCHEN_STAFF"
 interface StaffMember { id: string; name: string; email: string; role: StaffRole; branchId?: string; branchName?: string; isActive: boolean }
 
@@ -653,15 +654,215 @@ function SecurityTab() {
   )
 }
 
+// ─── Tab 5: Kitchen Sections ─────────────────────────────────────────────────
+
+function KitchenSectionsTab({ branches }: { branches: Branch[] }) {
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [modal, setModal] = useState<false | Department | null>(false)
+
+  async function load() {
+    setLoading(true)
+    setError(null)
+    try {
+      setDepartments(await apiFetch<Department[]>("/kitchen/departments"))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  async function handleDelete(dept: Department) {
+    if (!window.confirm(`Delete section "${dept.name}"? This cannot be undone.`)) return
+    try {
+      await apiFetch(`/kitchen/departments/${dept.id}`, { method: "DELETE" })
+      toast.success("Section deleted")
+      load()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete")
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <p className="text-sm text-gray-500">{departments.length} section{departments.length !== 1 ? "s" : ""}</p>
+        <button
+          onClick={() => setModal(null)}
+          className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg"
+        >
+          <Plus className="w-4 h-4" /> Add Section
+        </button>
+      </div>
+
+      {error ? (
+        <div className="border border-red-200 bg-red-50 rounded-xl p-4 flex items-center justify-between">
+          <p className="text-red-600 text-sm">{error}</p>
+          <button onClick={load} className="text-sm text-red-600 underline">Retry</button>
+        </div>
+      ) : loading ? (
+        <div className="animate-pulse space-y-2">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-14 bg-gray-100 rounded-xl" />
+          ))}
+        </div>
+      ) : departments.length === 0 ? (
+        <div className="flex flex-col items-center py-12 text-gray-400">
+          <ChefHat className="w-10 h-10 mb-2 opacity-30" />
+          <p className="text-sm">No kitchen sections yet</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="text-left px-5 py-3 font-medium text-gray-500">Section</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-500">Branch</th>
+                <th className="text-right px-5 py-3 font-medium text-gray-500">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {departments.map((dept) => (
+                <tr key={dept.id} className="border-b border-gray-100 last:border-0">
+                  <td className="px-5 py-3 font-medium text-gray-900">{dept.name}</td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {branches.find((b) => b.id === dept.branchId)?.name ?? "—"}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => setModal(dept)}
+                        className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(dept)}
+                        className="p-1.5 rounded hover:bg-red-50 text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal !== false && (
+        <DepartmentModal
+          editing={modal}
+          branches={branches}
+          onClose={() => setModal(false)}
+          onSaved={load}
+        />
+      )}
+    </div>
+  )
+}
+
+function DepartmentModal({
+  editing,
+  branches,
+  onClose,
+  onSaved,
+}: {
+  editing: Department | null
+  branches: Branch[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [name, setName] = useState(editing?.name ?? "")
+  const [branchId, setBranchId] = useState(editing?.branchId ?? branches[0]?.id ?? "")
+  const [saving, setSaving] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      if (editing) {
+        await apiFetch(`/kitchen/departments/${editing.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name }),
+        })
+        toast.success("Section updated")
+      } else {
+        await apiFetch("/kitchen/departments", {
+          method: "POST",
+          body: JSON.stringify({ name, branchId }),
+        })
+        toast.success("Section added")
+      }
+      onSaved()
+      onClose()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title={editing ? "Edit Section" : "Add Kitchen Section"} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Section Name <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Grill, Bakery, Cold Kitchen"
+            className={inputCls}
+          />
+        </div>
+        {!editing && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Branch <span className="text-red-500">*</span>
+            </label>
+            <select
+              required
+              value={branchId}
+              onChange={(e) => setBranchId(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">— Select branch —</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600">Cancel</button>
+          <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-orange-500 hover:bg-orange-600 text-white rounded-lg disabled:opacity-60">
+            {saving ? "Saving…" : editing ? "Save" : "Add Section"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = "profile" | "branches" | "staff" | "security"
+type Tab = "profile" | "branches" | "staff" | "security" | "kitchen"
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "profile", label: "Restaurant Profile", icon: Store },
   { id: "branches", label: "Branches", icon: Building2 },
   { id: "staff", label: "Staff", icon: Users },
   { id: "security", label: "Security", icon: Shield },
+  { id: "kitchen", label: "Kitchen Sections", icon: ChefHat },
 ]
 
 export default function SettingsPage() {
@@ -700,6 +901,7 @@ export default function SettingsPage() {
         {activeTab === "branches" && <BranchesTab />}
         {activeTab === "staff" && <StaffTab branches={branches} />}
         {activeTab === "security" && <SecurityTab />}
+        {activeTab === "kitchen" && <KitchenSectionsTab branches={branches} />}
       </div>
     </div>
   )

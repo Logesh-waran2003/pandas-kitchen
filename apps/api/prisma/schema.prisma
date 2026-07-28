@@ -117,6 +117,7 @@ model MenuItem {
   imageUrl        String?
   isAvailable     Boolean              @default(true)
   isVeg           Boolean              @default(false)
+  allergens       String[]
   preparationTime Int?
   sortOrder       Int                  @default(0)
   departmentId    String?

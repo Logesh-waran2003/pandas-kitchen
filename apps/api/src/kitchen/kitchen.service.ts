@@ -61,9 +61,10 @@ export class KitchenService {
 
   // ── KOT Tickets ──────────────────────────────────────────────────────────────
 
-  async listKOT(restaurantId: string, branchId: string, status?: string) {
+  async listKOT(restaurantId: string, branchId: string, status?: string, departmentId?: string) {
     const where: any = { branchId, branch: { restaurantId } }
     if (status) where.status = status as KOTStatus
+    if (departmentId) where.items = { some: { departmentId } }
 
     const tickets = await this.prisma.kOTTicket.findMany({
       where,

@@ -191,8 +191,12 @@ export class AnalyticsService {
       case "item-wise":     return this.getItemWiseSales(restaurantId, start, end, branchId)
       case "payment-modes": return this.getPaymentModeBreakdown(restaurantId, start, end, branchId)
       case "cancelled":     return this.getCancelledOrders(restaurantId, start, end, branchId)
-      case "customer-data": return this.getTopCustomers(restaurantId, start, end)
-      default:              throw new BadRequestException(`Unknown report type: ${type}`)
+      case "customer-data":        return this.getTopCustomers(restaurantId, start, end)
+      case "repeated-customers":   return this.getRepeatedCustomers(restaurantId, start, end)
+      case "employee-sales":       return this.getEmployeeSales(restaurantId, start, end, branchId)
+      case "time-wise":            return this.getTimeWiseSales(restaurantId, start, end, branchId)
+      case "monthwise":            return this.getMonthwiseSales(restaurantId, start, end, branchId)
+      default:                     throw new BadRequestException(`Unknown report type: ${type}`)
     }
   }
 
@@ -311,6 +315,114 @@ export class AnalyticsService {
       select: { id: true, orderNumber: true, total: true, createdAt: true, tableId: true },
       orderBy: { createdAt: "desc" },
     })
+  }
+
+  private async getRepeatedCustomers(restaurantId: string, start: Date, end: Date) {
+    const orders = await this.prisma.order.findMany({
+      where: { restaurantId, createdAt: { gte: start, lte: end }, status: { not: "CANCELLED" } },
+      select: { customerId: true, total: true },
+    })
+    const byCustomer: Record<string, { count: number; spent: number }> = {}
+    for (const o of orders) {
+      if (!o.customerId) continue
+      if (!byCustomer[o.customerId]) byCustomer[o.customerId] = { count: 0, spent: 0 }
+      byCustomer[o.customerId].count++
+      byCustomer[o.customerId].spent += Number(o.total)
+    }
+    const repeatedIds = Object.entries(byCustomer)
+      .filter(([, v]) => v.count > 1)
+      .map(([id]) => id)
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: repeatedIds } },
+      select: { id: true, name: true, phone: true },
+    })
+    return customers
+      .map((c) => ({
+        ...c,
+        orderCount: byCustomer[c.id].count,
+        totalSpent: byCustomer[c.id].spent,
+      }))
+      .sort((a, b) => b.orderCount - a.orderCount)
+  }
+
+  private async getEmployeeSales(restaurantId: string, start: Date, end: Date, branchId?: string) {
+    const where: any = {
+      restaurantId,
+      createdAt: { gte: start, lte: end },
+      status: { not: "CANCELLED" },
+    }
+    if (branchId) where.branchId = branchId
+    const orders = await this.prisma.order.findMany({
+      where,
+      select: { createdById: true, total: true },
+    })
+    const byStaff: Record<string, { count: number; revenue: number }> = {}
+    for (const o of orders) {
+      const key = o.createdById ?? "unknown"
+      if (!byStaff[key]) byStaff[key] = { count: 0, revenue: 0 }
+      byStaff[key].count++
+      byStaff[key].revenue += Number(o.total)
+    }
+    const staffIds = Object.keys(byStaff).filter((id) => id !== "unknown")
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: staffIds } },
+      select: { id: true, name: true, role: true },
+    })
+    const userMap = new Map(users.map((u) => [u.id, u]))
+    return Object.entries(byStaff)
+      .map(([id, data]) => ({
+        staffId: id,
+        name: userMap.get(id)?.name ?? "Unknown",
+        role: userMap.get(id)?.role ?? "-",
+        orderCount: data.count,
+        revenue: data.revenue,
+      }))
+      .sort((a, b) => b.revenue - a.revenue)
+  }
+
+  private async getTimeWiseSales(restaurantId: string, start: Date, end: Date, branchId?: string) {
+    const where: any = {
+      restaurantId,
+      createdAt: { gte: start, lte: end },
+      status: { not: "CANCELLED" },
+    }
+    if (branchId) where.branchId = branchId
+    const orders = await this.prisma.order.findMany({ where, select: { createdAt: true, total: true } })
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000
+    const byHour: Record<number, { count: number; revenue: number }> = {}
+    for (let i = 0; i < 24; i++) byHour[i] = { count: 0, revenue: 0 }
+    for (const o of orders) {
+      const istTime = new Date(o.createdAt.getTime() + IST_OFFSET)
+      const hour = istTime.getUTCHours()
+      byHour[hour].count++
+      byHour[hour].revenue += Number(o.total)
+    }
+    return Object.entries(byHour).map(([hour, data]) => ({
+      hour: Number(hour),
+      label: `${String(Number(hour)).padStart(2, "0")}:00`,
+      orderCount: data.count,
+      revenue: data.revenue,
+    }))
+  }
+
+  private async getMonthwiseSales(restaurantId: string, start: Date, end: Date, branchId?: string) {
+    const where: any = {
+      restaurantId,
+      createdAt: { gte: start, lte: end },
+      status: { not: "CANCELLED" },
+    }
+    if (branchId) where.branchId = branchId
+    const orders = await this.prisma.order.findMany({ where, select: { createdAt: true, total: true } })
+    const byMonth: Record<string, { count: number; revenue: number }> = {}
+    for (const o of orders) {
+      const key = o.createdAt.toISOString().slice(0, 7) // YYYY-MM
+      if (!byMonth[key]) byMonth[key] = { count: 0, revenue: 0 }
+      byMonth[key].count++
+      byMonth[key].revenue += Number(o.total)
+    }
+    return Object.entries(byMonth)
+      .map(([month, data]) => ({ month, orderCount: data.count, revenue: data.revenue }))
+      .sort((a, b) => a.month.localeCompare(b.month))
   }
 
   private async getTopCustomers(restaurantId: string, _start: Date, _end: Date) {

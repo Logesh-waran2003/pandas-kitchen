@@ -22,7 +22,18 @@ export class OrdersService {
     private kitchenService: KitchenService,
   ) {}
 
-  async listOrders(restaurantId: string, branchId?: string, status?: string, date?: string) {
+  async listOrders(
+    restaurantId: string,
+    branchId?: string,
+    status?: string,
+    date?: string,
+    page?: number,
+    limit?: number,
+  ) {
+    const pageNum = page && page > 0 ? page : 1
+    const limitNum = Math.min(limit && limit > 0 ? limit : 20, 100)
+    const skip = (pageNum - 1) * limitNum
+
     const where: any = { restaurantId }
 
     if (branchId) where.branchId = branchId
@@ -35,23 +46,31 @@ export class OrdersService {
       where.createdAt = { gte: start, lt: end }
     }
 
-    const orders = await this.prisma.order.findMany({
-      where,
-      include: {
-        table: { select: { id: true, tableNumber: true } },
-        branch: { select: { id: true, name: true } },
-        customer: { select: { id: true, name: true, phone: true } },
-        items: {
-          include: {
-            menuItem: { select: { id: true, name: true } },
-            addons: true,
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: {
+          table: { select: { id: true, tableNumber: true } },
+          branch: { select: { id: true, name: true } },
+          customer: { select: { id: true, name: true, phone: true } },
+          items: {
+            include: {
+              menuItem: { select: { id: true, name: true } },
+              addons: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: "desc" },
-    })
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limitNum,
+      }),
+      this.prisma.order.count({ where }),
+    ])
 
-    return orders.map(this.serializeOrder)
+    return {
+      data: orders.map(this.serializeOrder),
+      meta: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+    }
   }
 
   async findOneForTracking(orderId: string, customerId: string) {

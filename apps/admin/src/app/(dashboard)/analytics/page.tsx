@@ -94,6 +94,37 @@ export default function AnalyticsPage() {
   const [pnlLoading, setPnlLoading] = useState(false)
   const [pnlError, setPnlError] = useState<string | null>(null)
 
+  // ── Reports ────────────────────────────────────────────────────────────────
+  const REPORT_TYPES = [
+    { key: "today-sales",   label: "Today Sales" },
+    { key: "daywise",       label: "Day-wise" },
+    { key: "item-wise",     label: "Item-wise" },
+    { key: "payment-modes", label: "Payment Modes" },
+    { key: "cancelled",     label: "Cancelled" },
+    { key: "customer-data", label: "Top Customers" },
+  ]
+  const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6)
+  const [reportType, setReportType] = useState("today-sales")
+  const [reportFrom, setReportFrom] = useState(sevenDaysAgo.toISOString().slice(0, 10))
+  const [reportTo, setReportTo]     = useState(new Date().toISOString().slice(0, 10))
+  const [reportData, setReportData] = useState<unknown[]>([])
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportError, setReportError]     = useState<string | null>(null)
+  const [reportRan, setReportRan]         = useState(false)
+
+  async function runReport() {
+    setReportLoading(true); setReportError(null); setReportRan(true)
+    try {
+      const url = `/analytics/reports/${reportType}?from=${reportFrom}&to=${reportTo}`
+      const data = await apiFetch<unknown[]>(url)
+      setReportData(Array.isArray(data) ? data : [data as unknown])
+    } catch (e) {
+      setReportError(e instanceof Error ? e.message : "Failed to run report")
+    } finally {
+      setReportLoading(false)
+    }
+  }
+
   async function loadSummary() {
     setSumLoading(true); setSumError(null)
     try { setSummary(await apiFetch<Summary>("/analytics/summary")) }
@@ -371,6 +402,219 @@ export default function AnalyticsPage() {
           </div>
         )}
       </div>
+
+      {/* ── Reports Section ─────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm space-y-4">
+        <h2 className="text-sm font-semibold text-gray-700">Reports</h2>
+
+        {/* Report type tabs */}
+        <div className="flex flex-wrap gap-2">
+          {REPORT_TYPES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setReportType(r.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                reportType === r.key
+                  ? "bg-orange-500 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Date range + run */}
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">From</label>
+            <input
+              type="date"
+              value={reportFrom}
+              onChange={(e) => setReportFrom(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">To</label>
+            <input
+              type="date"
+              value={reportTo}
+              onChange={(e) => setReportTo(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+          </div>
+          <button
+            onClick={runReport}
+            disabled={reportLoading}
+            className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg disabled:opacity-60 flex items-center gap-2"
+          >
+            {reportLoading && (
+              <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            )}
+            Run Report
+          </button>
+        </div>
+
+        {/* Results */}
+        {reportError && (
+          <p className="text-sm text-red-500">{reportError}</p>
+        )}
+
+        {reportRan && !reportLoading && !reportError && (
+          <div className="overflow-x-auto">
+            {reportData.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8">No data for this period</p>
+            ) : (
+              <ReportTable type={reportType} data={reportData} />
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
+}
+
+// ── Report table renderer ────────────────────────────────────────────────────
+
+function ReportTable({ type, data }: { type: string; data: unknown[] }) {
+  if (type === "today-sales") {
+    const { totalOrders, revenue } = data[0] as { totalOrders: number; revenue: number; orders: unknown[] }
+    return (
+      <div className="flex gap-6">
+        <div className="bg-orange-50 rounded-xl p-4 flex-1 text-center">
+          <p className="text-xs text-gray-500 mb-1">Total Orders</p>
+          <p className="text-2xl font-bold text-orange-600">{totalOrders}</p>
+        </div>
+        <div className="bg-green-50 rounded-xl p-4 flex-1 text-center">
+          <p className="text-xs text-gray-500 mb-1">Revenue</p>
+          <p className="text-2xl font-bold text-green-600">{formatCurrency(revenue)}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (type === "daywise") {
+    const rows = data as { date: string; orders: number; revenue: number }[]
+    return (
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100">
+            <th className="text-left py-2 text-xs font-medium text-gray-400">Date</th>
+            <th className="text-right py-2 text-xs font-medium text-gray-400">Orders</th>
+            <th className="text-right py-2 text-xs font-medium text-gray-400">Revenue</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.date} className="border-b border-gray-50 hover:bg-gray-50">
+              <td className="py-2.5 text-gray-700">{r.date}</td>
+              <td className="py-2.5 text-right text-gray-600">{r.orders}</td>
+              <td className="py-2.5 text-right font-medium text-gray-800">{formatCurrency(r.revenue)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+
+  if (type === "item-wise") {
+    const rows = data as { name: string; qty: number; revenue: number }[]
+    return (
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100">
+            <th className="text-left py-2 text-xs font-medium text-gray-400">Item</th>
+            <th className="text-right py-2 text-xs font-medium text-gray-400">Qty Sold</th>
+            <th className="text-right py-2 text-xs font-medium text-gray-400">Revenue</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+              <td className="py-2.5 font-medium text-gray-800">{r.name}</td>
+              <td className="py-2.5 text-right text-gray-600">{r.qty}</td>
+              <td className="py-2.5 text-right font-medium text-gray-800">{formatCurrency(r.revenue)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+
+  if (type === "payment-modes") {
+    const rows = data as { mode: string; amount: number }[]
+    return (
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100">
+            <th className="text-left py-2 text-xs font-medium text-gray-400">Payment Mode</th>
+            <th className="text-right py-2 text-xs font-medium text-gray-400">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.mode} className="border-b border-gray-50 hover:bg-gray-50">
+              <td className="py-2.5 text-gray-700">{r.mode}</td>
+              <td className="py-2.5 text-right font-medium text-gray-800">{formatCurrency(r.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+
+  if (type === "cancelled") {
+    const rows = data as { orderNumber: string; total: number; createdAt: string }[]
+    return (
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100">
+            <th className="text-left py-2 text-xs font-medium text-gray-400">Order #</th>
+            <th className="text-left py-2 text-xs font-medium text-gray-400">Date</th>
+            <th className="text-right py-2 text-xs font-medium text-gray-400">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.orderNumber} className="border-b border-gray-50 hover:bg-gray-50">
+              <td className="py-2.5 font-medium text-gray-800">{r.orderNumber}</td>
+              <td className="py-2.5 text-gray-500 text-xs">{new Date(r.createdAt).toLocaleDateString("en-IN")}</td>
+              <td className="py-2.5 text-right text-gray-700">{formatCurrency(Number(r.total))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+
+  if (type === "customer-data") {
+    const rows = data as { name: string; phone: string; totalOrders: number; totalSpent: number }[]
+    return (
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-100">
+            <th className="text-left py-2 text-xs font-medium text-gray-400">#</th>
+            <th className="text-left py-2 text-xs font-medium text-gray-400">Customer</th>
+            <th className="text-left py-2 text-xs font-medium text-gray-400">Phone</th>
+            <th className="text-right py-2 text-xs font-medium text-gray-400">Orders</th>
+            <th className="text-right py-2 text-xs font-medium text-gray-400">Total Spent</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+              <td className="py-2.5 text-gray-400 text-xs">{i + 1}</td>
+              <td className="py-2.5 font-medium text-gray-800">{r.name}</td>
+              <td className="py-2.5 text-gray-500">{r.phone}</td>
+              <td className="py-2.5 text-right text-gray-600">{r.totalOrders}</td>
+              <td className="py-2.5 text-right font-medium text-gray-800">{formatCurrency(Number(r.totalSpent))}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  }
+
+  return null
 }

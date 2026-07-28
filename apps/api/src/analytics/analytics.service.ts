@@ -253,19 +253,27 @@ export class AnalyticsService {
     }
     if (branchId) orderWhere.branchId = branchId
 
-    const items = await this.prisma.orderItem.groupBy({
-      by: ["menuItemId", "name"],
+    // Prisma groupBy with a nested relation filter triggers a known circular-type issue;
+    // cast to any to work around it while keeping runtime correctness.
+    const grouped = await (this.prisma.orderItem.groupBy as any)({
+      by: ["menuItemId"],
       where: { order: orderWhere },
       _sum: { quantity: true, totalPrice: true },
-      _count: true,
       orderBy: { _sum: { quantity: "desc" } },
-    })
+    }) as Array<{ menuItemId: string; _sum: { quantity: number | null; totalPrice: unknown } }>
 
-    return items.map((i) => ({
-      itemId: i.menuItemId,
-      name: i.name,
-      qty: i._sum.quantity ?? 0,
-      revenue: Number(i._sum.totalPrice ?? 0),
+    const ids = grouped.map((r) => r.menuItemId)
+    const menuItems = await this.prisma.menuItem.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    })
+    const nameMap = new Map(menuItems.map((m) => [m.id, m.name]))
+
+    return grouped.map((r) => ({
+      itemId: r.menuItemId,
+      name: nameMap.get(r.menuItemId) ?? "Unknown",
+      qty: r._sum.quantity ?? 0,
+      revenue: Number(r._sum.totalPrice ?? 0),
     }))
   }
 

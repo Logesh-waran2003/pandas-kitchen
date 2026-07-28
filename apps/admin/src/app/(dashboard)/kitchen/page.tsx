@@ -5,6 +5,8 @@ import { apiFetch } from "@/lib/api"
 import { timeElapsed } from "@/lib/utils"
 import { toast } from "sonner"
 import { RefreshCw, ChefHat, Check } from "lucide-react"
+import { getSocket } from "@/lib/socket"
+import { useAuthStore } from "@/stores/auth.store"
 
 interface Branch { id: string; name: string }
 interface KotItem { id: string; name: string; quantity: number; status: "PENDING" | "IN_PROGRESS" | "DONE" }
@@ -246,7 +248,9 @@ export default function KitchenPage() {
   const [selectedDept, setSelectedDept] = useState<string>("All")
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [spinning, setSpinning] = useState(false)
+  const [socketConnected, setSocketConnected] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const accessToken = useAuthStore((s) => s.accessToken)
 
   // Load branches once on mount
   useEffect(() => {
@@ -293,6 +297,49 @@ export default function KitchenPage() {
     }
   }, [autoRefresh, selectedBranchId, loadKots])
 
+  // Socket.io — live KOT updates
+  useEffect(() => {
+    if (!accessToken || !selectedBranchId) return
+
+    const socket = getSocket(accessToken)
+
+    function onConnect() {
+      setSocketConnected(true)
+      socket.emit("join:kitchen", selectedBranchId)
+    }
+
+    function onDisconnect() {
+      setSocketConnected(false)
+    }
+
+    function onKotCreated() {
+      loadKots(selectedBranchId)
+    }
+
+    function onKotStatusChanged(data: { id: string; status: Kot["status"] }) {
+      setKots((prev) =>
+        prev.map((k) => (k.id === data.id ? { ...k, status: data.status } : k)),
+      )
+    }
+
+    if (socket.connected) {
+      setSocketConnected(true)
+      socket.emit("join:kitchen", selectedBranchId)
+    }
+
+    socket.on("connect", onConnect)
+    socket.on("disconnect", onDisconnect)
+    socket.on("kot.created", onKotCreated)
+    socket.on("kot.status_changed", onKotStatusChanged)
+
+    return () => {
+      socket.off("connect", onConnect)
+      socket.off("disconnect", onDisconnect)
+      socket.off("kot.created", onKotCreated)
+      socket.off("kot.status_changed", onKotStatusChanged)
+    }
+  }, [accessToken, selectedBranchId, loadKots])
+
   // Unique departments from loaded KOTs
   const departments = ["All", ...Array.from(new Set(kots.map((k) => k.department).filter(Boolean) as string[]))]
 
@@ -316,6 +363,12 @@ export default function KitchenPage() {
       {/* Top bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-gray-900 mr-2">Kitchen Display</h1>
+        {socketConnected && (
+          <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">
+            <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+            Live
+          </span>
+        )}
 
         {/* Branch selector */}
         <select

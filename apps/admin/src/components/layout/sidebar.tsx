@@ -16,6 +16,7 @@ import {
   ShoppingCart,
   ChefHat,
   Users,
+  Package,
 } from "lucide-react"
 
 const navItems = [
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/menu", label: "Menu", icon: UtensilsCrossed },
   { href: "/pos", label: "POS", icon: ShoppingCart },
   { href: "/kitchen", label: "Kitchen", icon: ChefHat },
+  { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/tables", label: "Tables", icon: Table },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
@@ -100,8 +102,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <div className="flex-1 flex flex-col">
         {/* Topbar */}
         <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900 capitalize">
-            {pathname === "/" ? "Dashboard" : pathname.replace("/", "")}
+          <h2 className="text-lg font-semibold text-gray-900">
+            {navItems.find((n) => n.href === pathname)?.label ??
+              (pathname === "/" ? "Dashboard" : pathname.replace("/", ""))}
           </h2>
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center text-white text-sm font-bold">

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
 import { PaymentStatus } from "@prisma/client"
@@ -75,6 +76,10 @@ export class PaymentsService {
     const payment = await this.prisma.payment.findUnique({ where: { id } })
     if (!payment) throw new NotFoundException("Payment not found")
     if (payment.restaurantId !== restaurantId) throw new ForbiddenException()
+
+    if (payment.status === "REFUNDED") {
+      throw new BadRequestException("Payment has already been refunded")
+    }
 
     const refund = await this.prisma.$transaction(async (tx) => {
       // Mark original as refunded

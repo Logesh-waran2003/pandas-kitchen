@@ -4,9 +4,10 @@ import { useEffect, useState } from "react"
 import { apiFetch } from "@/lib/api"
 import { formatCurrency } from "@/lib/utils"
 import {
-  LineChart, Line, BarChart, Bar,
+  AreaChart, Area,
+  PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Legend,
 } from "recharts"
 
 interface Summary {
@@ -22,12 +23,12 @@ interface PopularItem { name: string; totalQuantity: number; totalRevenue: numbe
 interface StatusCount { status: string; count: number }
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: "#eab308",
+  PENDING: "#f59e0b",
   CONFIRMED: "#3b82f6",
   PREPARING: "#f97316",
   READY: "#22c55e",
   SERVED: "#14b8a6",
-  PAID: "#9ca3af",
+  PAID: "#6b7280",
   CANCELLED: "#ef4444",
 }
 
@@ -35,7 +36,7 @@ function SectionSkeleton({ height = 280 }: { height?: number }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse">
       <div className="h-4 w-32 bg-gray-200 rounded mb-4" />
-      <div className={`bg-gray-100 rounded`} style={{ height }} />
+      <div className="bg-gray-100 rounded" style={{ height }} />
     </div>
   )
 }
@@ -44,7 +45,9 @@ function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void 
   return (
     <div className="border border-red-200 bg-red-50 rounded-xl p-5 flex items-center justify-between">
       <p className="text-red-600 text-sm">{message}</p>
-      <button onClick={onRetry} className="text-sm font-medium text-red-600 hover:text-red-800 underline">Retry</button>
+      <button onClick={onRetry} className="text-sm font-medium text-red-600 hover:text-red-800 underline">
+        Retry
+      </button>
     </div>
   )
 }
@@ -86,7 +89,7 @@ export default function AnalyticsPage() {
 
   async function loadRevenue() {
     setRevLoading(true); setRevError(null)
-    try { setRevenue(await apiFetch<RevenuePoint[]>("/analytics/revenue")) }
+    try { setRevenue(await apiFetch<RevenuePoint[]>("/analytics/daily-revenue")) }
     catch (e) { setRevError(e instanceof Error ? e.message : "Failed") }
     finally { setRevLoading(false) }
   }
@@ -142,118 +145,144 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {/* Charts row */}
+      {/* Daily Revenue Area Chart */}
+      {revError ? (
+        <ErrorCard message={revError} onRetry={loadRevenue} />
+      ) : revLoading ? (
+        <SectionSkeleton />
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4">Daily Revenue (Last 30 Days)</h2>
+          <ResponsiveContainer width="100%" height={260}>
+            <AreaChart data={revenue} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <defs>
+                <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                tickFormatter={(v) =>
+                  new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "2-digit" })
+                }
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
+              />
+              <Tooltip
+                formatter={(value: number) => [`₹${value.toLocaleString("en-IN")}`, "Revenue"]}
+                labelFormatter={(label) =>
+                  new Date(label as string).toLocaleDateString("en-IN", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                  })
+                }
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
+              />
+              <Area
+                type="monotone"
+                dataKey="revenue"
+                stroke="#f97316"
+                strokeWidth={2}
+                fill="url(#revenueGradient)"
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Charts row — Pie + Popular table */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue line chart */}
-        {revError ? (
-          <ErrorCard message={revError} onRetry={loadRevenue} />
-        ) : revLoading ? (
-          <SectionSkeleton />
+        {/* Orders by Status — Donut chart */}
+        {statusError ? (
+          <ErrorCard message={statusError} onRetry={loadStatus} />
+        ) : statusLoading ? (
+          <SectionSkeleton height={260} />
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Daily Revenue (30 days)</h2>
+          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-4">Orders by Status</h2>
             <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={revenue} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11, fill: "#9ca3af" }}
-                  tickFormatter={(v) => new Date(v).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "#9ca3af" }}
-                  tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
-                />
+              <PieChart>
+                <Pie
+                  data={statusData}
+                  dataKey="count"
+                  nameKey="status"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={100}
+                  paddingAngle={2}
+                >
+                  {statusData.map(({ status }, i) => (
+                    <Cell key={i} fill={STATUS_COLORS[status] ?? "#9ca3af"} />
+                  ))}
+                </Pie>
                 <Tooltip
-                  formatter={(value: number) => [formatCurrency(value), "Revenue"]}
-                  labelFormatter={(label) => new Date(label as string).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                  formatter={(value: number, name: string) => [value, name]}
                   contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
                 />
-                <Line
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="#f97316"
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  formatter={(value) => (
+                    <span style={{ fontSize: 11, color: "#6b7280" }}>{value}</span>
+                  )}
                 />
-              </LineChart>
+              </PieChart>
             </ResponsiveContainer>
           </div>
         )}
 
-        {/* Popular items bar chart */}
+        {/* Popular Items — table */}
         {popError ? (
           <ErrorCard message={popError} onRetry={loadPopular} />
         ) : popLoading ? (
-          <SectionSkeleton />
+          <SectionSkeleton height={260} />
         ) : (
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Top 10 Items by Orders</h2>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart
-                data={popular.slice(0, 10)}
-                layout="vertical"
-                margin={{ top: 5, right: 20, left: 80, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#9ca3af" }} />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  tick={{ fontSize: 11, fill: "#6b7280" }}
-                  width={75}
-                />
-                <Tooltip
-                  formatter={(value: number) => [value, "Orders"]}
-                  contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
-                />
-                <Bar dataKey="totalQuantity" radius={[0, 4, 4, 0]}>
-                  {popular.slice(0, 10).map((_, i) => (
-                    <Cell key={i} fill="#f97316" opacity={1 - i * 0.07} />
+          <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-4">Popular Items</h2>
+            <div className="overflow-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left py-2 text-xs font-medium text-gray-400 w-8">#</th>
+                    <th className="text-left py-2 text-xs font-medium text-gray-400">Item</th>
+                    <th className="text-right py-2 text-xs font-medium text-gray-400">Qty Sold</th>
+                    <th className="text-right py-2 text-xs font-medium text-gray-400">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {popular.slice(0, 10).map((item, i) => (
+                    <tr key={item.name} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-2.5 text-gray-400 text-xs">{i + 1}</td>
+                      <td className="py-2.5 font-medium text-gray-800">{item.name}</td>
+                      <td className="py-2.5 text-right text-gray-600">{item.totalQuantity}</td>
+                      <td className="py-2.5 text-right text-gray-700 font-medium">
+                        {formatCurrency(item.totalRevenue)}
+                      </td>
+                    </tr>
                   ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                  {popular.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-10 text-center text-gray-400 text-sm">
+                        No data yet
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>
-
-      {/* Orders by status */}
-      {statusError ? (
-        <ErrorCard message={statusError} onRetry={loadStatus} />
-      ) : statusLoading ? (
-        <SectionSkeleton height={120} />
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Orders by Status</h2>
-          <div className="space-y-3">
-            {statusData.map(({ status, count }) => {
-              const max = Math.max(...statusData.map((s) => s.count), 1)
-              const pct = Math.round((count / max) * 100)
-              const color = STATUS_COLORS[status] ?? "#9ca3af"
-              return (
-                <div key={status} className="flex items-center gap-3">
-                  <span
-                    className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 w-24 text-center"
-                    style={{ backgroundColor: `${color}20`, color }}
-                  >
-                    {status}
-                  </span>
-                  <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${pct}%`, backgroundColor: color }}
-                    />
-                  </div>
-                  <span className="text-sm font-medium text-gray-700 w-8 text-right">{count}</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -12,7 +12,7 @@ export class AnalyticsService {
           where: { restaurantId, status: { not: "CANCELLED" } },
         }),
         this.prisma.table.count({ where: { restaurantId, isActive: true } }),
-        this.prisma.user.count({ where: { restaurantId } }),
+        this.prisma.customer.count({ where: { restaurantId, isActive: true } }),
         this.prisma.order.aggregate({
           where: { restaurantId, status: { not: "CANCELLED" } },
           _sum: { total: true },
@@ -110,8 +110,13 @@ export class AnalyticsService {
   }
 
   private startOfToday() {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d
+    // Use restaurant timezone (IST = UTC+5:30)
+    // For now, offset to IST until per-restaurant timezone is wired
+    const now = new Date()
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000 // 5h30m in ms
+    const nowIST = new Date(now.getTime() + IST_OFFSET)
+    // Start of day in IST, converted back to UTC for DB query
+    const startIST = new Date(nowIST.toISOString().slice(0, 10) + 'T00:00:00.000Z')
+    return new Date(startIST.getTime() - IST_OFFSET)
   }
 }

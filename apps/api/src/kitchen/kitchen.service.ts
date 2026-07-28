@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
+import { EventsGateway } from "../events/events.gateway"
 import { KOTStatus, KOTItemStatus } from "@prisma/client"
 import {
   CreateDepartmentDto,
@@ -16,7 +17,10 @@ import {
 
 @Injectable()
 export class KitchenService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventsGateway,
+  ) {}
 
   // ── Departments ──────────────────────────────────────────────────────────────
 
@@ -150,6 +154,8 @@ export class KitchenService {
       },
     })
 
+    this.events.emitToKitchen(ticket.branchId, "kot.created", ticket)
+
     return ticket
   }
 
@@ -160,10 +166,17 @@ export class KitchenService {
     const branch = await this.prisma.branch.findUnique({ where: { id: ticket.branchId } })
     if (!branch || branch.restaurantId !== restaurantId) throw new ForbiddenException()
 
-    return this.prisma.kOTTicket.update({
+    const updatedTicket = await this.prisma.kOTTicket.update({
       where: { id },
       data: { status: dto.status as KOTStatus },
     })
+
+    this.events.emitToKitchen(updatedTicket.branchId, "kot.status_changed", {
+      id: updatedTicket.id,
+      status: updatedTicket.status,
+    })
+
+    return updatedTicket
   }
 
   async updateKOTItemStatus(restaurantId: string, itemId: string, dto: UpdateKOTItemStatusDto) {
@@ -178,6 +191,14 @@ export class KitchenService {
     if (dto.status === "PREPARING") data.startedAt = new Date()
     if (dto.status === "DONE") data.completedAt = new Date()
 
-    return this.prisma.kOTItem.update({ where: { id: itemId }, data })
+    const updatedItem = await this.prisma.kOTItem.update({ where: { id: itemId }, data })
+
+    this.events.emitToKitchen(item.kotTicket.branchId, "kot.item_updated", {
+      kotId: updatedItem.kotTicketId,
+      itemId: updatedItem.id,
+      status: updatedItem.status,
+    })
+
+    return updatedItem
   }
 }

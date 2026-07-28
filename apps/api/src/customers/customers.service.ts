@@ -57,6 +57,7 @@ export class CustomersService {
       subtotal: Number(o.subtotal),
       tax: Number(o.tax),
       total: Number(o.total),
+      totalAmount: Number(o.total),
       discount: Number(o.discount),
       serviceCharge: Number(o.serviceCharge),
       gstAmount: Number(o.gstAmount),

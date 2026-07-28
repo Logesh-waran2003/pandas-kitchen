@@ -11,6 +11,8 @@ import { SettingsModule } from "./settings/settings.module"
 import { CustomersModule } from "./customers/customers.module"
 import { KitchenModule } from "./kitchen/kitchen.module"
 import { PaymentsModule } from "./payments/payments.module"
+import { EventsModule } from "./events/events.module"
+import { InventoryModule } from "./inventory/inventory.module"
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { PaymentsModule } from "./payments/payments.module"
     CustomersModule,
     KitchenModule,
     PaymentsModule,
+    EventsModule,
+    InventoryModule,
   ],
 })
 export class AppModule {}

@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
+import { EventsGateway } from "../events/events.gateway"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
 import { OrderStatus, OrderType } from "@prisma/client"
@@ -12,7 +13,10 @@ import { Decimal } from "@prisma/client/runtime/library"
 
 @Injectable()
 export class OrdersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventsGateway,
+  ) {}
 
   async listOrders(restaurantId: string, branchId?: string, status?: string, date?: string) {
     const where: any = { restaurantId }
@@ -228,6 +232,14 @@ export class OrdersService {
       }
 
       return created
+    })
+
+    this.events.emitToBranch(dto.branchId, "order.created", {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      tableId: order.tableId,
+      status: order.status,
+      total: Number(order.total),
     })
 
     return this.serializeOrder(order)

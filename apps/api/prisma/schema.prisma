@@ -26,21 +26,23 @@ model Restaurant {
   departments     Department[]
   payments        Payment[]
   menuAddonGroups MenuAddonGroup[]
+  inventoryItems  InventoryItem[]
 }
 
 model Branch {
-  id           String      @id @default(cuid())
-  restaurantId String
-  name         String
-  isActive     Boolean     @default(true)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  restaurant   Restaurant  @relation(fields: [restaurantId], references: [id])
-  users        User[]
-  tables       Table[]
-  orders       Order[]
-  departments  Department[]
-  kotTickets   KOTTicket[]
+  id             String          @id @default(cuid())
+  restaurantId   String
+  name           String
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  restaurant     Restaurant      @relation(fields: [restaurantId], references: [id])
+  users          User[]
+  tables         Table[]
+  orders         Order[]
+  departments    Department[]
+  kotTickets     KOTTicket[]
+  inventoryItems InventoryItem[]
 }
 
 model User {
@@ -95,6 +97,8 @@ model MenuCategory {
   updatedAt    DateTime   @updatedAt
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
   items        MenuItem[]
+
+  @@index([restaurantId])
 }
 
 model MenuItem {
@@ -117,6 +121,9 @@ model MenuItem {
   orderItems      OrderItem[]
   variants        MenuItemVariant[]
   addonGroups     MenuItemAddonGroup[]
+
+  @@index([restaurantId, isAvailable])
+  @@index([categoryId])
 }
 
 model MenuItemVariant {
@@ -205,6 +212,8 @@ model Customer {
   @@index([restaurantId])
 }
 
+
+
 model Order {
   id            String      @id @default(cuid())
   restaurantId  String
@@ -234,6 +243,10 @@ model Order {
   items         OrderItem[]
   payments      Payment[]
   kotTickets    KOTTicket[]
+
+  @@index([restaurantId, status])
+  @@index([restaurantId, createdAt])
+  @@index([branchId])
 }
 
 model OrderItem {
@@ -290,6 +303,8 @@ model KOTTicket {
   order        Order     @relation(fields: [orderId], references: [id])
   branch       Branch    @relation(fields: [branchId], references: [id])
   items        KOTItem[]
+
+  @@index([branchId, status])
 }
 
 model KOTItem {
@@ -319,6 +334,9 @@ model Payment {
   updatedAt    DateTime      @updatedAt
   order        Order         @relation(fields: [orderId], references: [id])
   restaurant   Restaurant    @relation(fields: [restaurantId], references: [id])
+
+  @@index([orderId])
+  @@index([restaurantId])
 }
 
 enum TableStatus {
@@ -370,4 +388,46 @@ enum PaymentStatus {
   COMPLETED
   FAILED
   REFUNDED
+}
+
+model InventoryItem {
+  id           String   @id @default(cuid())
+  restaurantId String
+  branchId     String
+  name         String
+  unit         String
+  currentStock Decimal  @default(0) @db.Decimal(10, 3)
+  minStock     Decimal  @default(0) @db.Decimal(10, 3)
+  costPerUnit  Decimal  @default(0) @db.Decimal(10, 2)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  restaurant   Restaurant        @relation(fields: [restaurantId], references: [id])
+  branch       Branch            @relation(fields: [branchId], references: [id])
+  adjustments  StockAdjustment[]
+
+  @@index([restaurantId, branchId])
+  @@index([restaurantId, isActive])
+}
+
+model StockAdjustment {
+  id              String              @id @default(cuid())
+  inventoryItemId String
+  type            StockAdjustmentType
+  quantity        Decimal             @db.Decimal(10, 3)
+  note            String?
+  createdById     String?
+  createdAt       DateTime            @default(now())
+
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([inventoryItemId])
+}
+
+enum StockAdjustmentType {
+  RESTOCK
+  MANUAL_DEDUCTION
+  WASTE
+  ORDER_DEDUCTION
 }

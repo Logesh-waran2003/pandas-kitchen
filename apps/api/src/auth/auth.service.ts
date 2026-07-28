@@ -57,6 +57,14 @@ export class AuthService {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + 30)
 
+    // Clean up expired sessions for this user before creating new one
+    await this.prisma.session.deleteMany({
+      where: {
+        userId: user.id,
+        expiresAt: { lt: new Date() },
+      },
+    })
+
     await this.prisma.session.create({
       data: {
         userId: user.id,

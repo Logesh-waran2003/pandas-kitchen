@@ -10,7 +10,11 @@ export class JwtRefreshStrategy extends PassportStrategy(Strategy, "jwt-refresh"
     super({
       jwtFromRequest: ExtractJwt.fromBodyField("refreshToken"),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_REFRESH_SECRET ?? "fallback-refresh-secret",
+      secretOrKey: (() => {
+        const s = process.env.JWT_REFRESH_SECRET
+        if (!s) throw new Error("JWT_REFRESH_SECRET environment variable is not set")
+        return s
+      })(),
       passReqToCallback: true,
     })
   }

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common"
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
 import { CreateMenuCategoryDto } from "./dto/create-menu-category.dto"
 import { UpdateMenuCategoryDto } from "./dto/update-menu-category.dto"
@@ -48,6 +48,14 @@ export class MenuService {
 
   async deleteCategory(restaurantId: string, id: string) {
     await this.assertCategoryOwner(restaurantId, id)
+
+    const itemCount = await this.prisma.menuItem.count({ where: { categoryId: id } })
+    if (itemCount > 0) {
+      throw new BadRequestException(
+        `Cannot delete category with ${itemCount} item${itemCount === 1 ? '' : 's'}. Move or delete items first.`
+      )
+    }
+
     await this.prisma.menuCategory.delete({ where: { id } })
     return { success: true }
   }

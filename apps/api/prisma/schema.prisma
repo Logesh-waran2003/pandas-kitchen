@@ -27,6 +27,7 @@ model Restaurant {
   payments        Payment[]
   menuAddonGroups MenuAddonGroup[]
   inventoryItems  InventoryItem[]
+  shifts          Shift[]
 }
 
 model Branch {
@@ -43,23 +44,26 @@ model Branch {
   departments    Department[]
   kotTickets     KOTTicket[]
   inventoryItems InventoryItem[]
+  shifts         Shift[]
 }
 
 model User {
-  id           String      @id @default(cuid())
-  email        String      @unique
-  passwordHash String
-  name         String
-  phone        String?
-  role         UserRole    @default(CAPTAIN)
-  restaurantId String?
-  branchId     String?
-  isActive     Boolean     @default(true)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id])
-  branch       Branch?     @relation(fields: [branchId], references: [id])
-  sessions     Session[]
+  id            String      @id @default(cuid())
+  email         String      @unique
+  passwordHash  String
+  name          String
+  phone         String?
+  role          UserRole    @default(CAPTAIN)
+  restaurantId  String?
+  branchId      String?
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  restaurant    Restaurant? @relation(fields: [restaurantId], references: [id])
+  branch        Branch?     @relation(fields: [branchId], references: [id])
+  sessions      Session[]
+  shiftsOpened  Shift[]     @relation("ShiftOpenedBy")
+  shiftsClosed  Shift[]     @relation("ShiftClosedBy")
 }
 
 enum UserRole {
@@ -430,4 +434,33 @@ enum StockAdjustmentType {
   MANUAL_DEDUCTION
   WASTE
   ORDER_DEDUCTION
+}
+
+model Shift {
+  id            String      @id @default(cuid())
+  restaurantId  String
+  branchId      String
+  openedById    String
+  closedById    String?
+  status        ShiftStatus @default(OPEN)
+  openingFloat  Decimal     @default(0) @db.Decimal(10, 2)
+  closingFloat  Decimal?    @db.Decimal(10, 2)
+  openedAt      DateTime    @default(now())
+  closedAt      DateTime?
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  restaurant    Restaurant  @relation(fields: [restaurantId], references: [id])
+  branch        Branch      @relation(fields: [branchId], references: [id])
+  openedBy      User        @relation("ShiftOpenedBy", fields: [openedById], references: [id])
+  closedBy      User?       @relation("ShiftClosedBy", fields: [closedById], references: [id])
+
+  @@index([restaurantId, branchId])
+  @@index([restaurantId, status])
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
 }

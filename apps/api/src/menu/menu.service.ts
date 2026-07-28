@@ -263,6 +263,111 @@ export class MenuService {
     return { success: true }
   }
 
+  async listPublicMenu(restaurantId: string) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: { id: true, name: true },
+    })
+    if (!restaurant) throw new NotFoundException("Restaurant not found")
+
+    const categories = await this.prisma.menuCategory.findMany({
+      where: { restaurantId, isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    })
+
+    const items = await this.prisma.menuItem.findMany({
+      where: { restaurantId, isAvailable: true },
+      include: {
+        variants: {
+          where: { isAvailable: true },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        },
+        addonGroups: {
+          include: {
+            addonGroup: {
+              include: {
+                addons: {
+                  where: { isAvailable: true },
+                  orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    })
+
+    const itemsByCategory = new Map<string, typeof items>()
+    for (const item of items) {
+      const bucket = itemsByCategory.get(item.categoryId) ?? []
+      bucket.push(item)
+      itemsByCategory.set(item.categoryId, bucket)
+    }
+
+    return {
+      restaurant,
+      categories: categories.map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        items: (itemsByCategory.get(cat.id) ?? []).map((item) => ({
+          id: item.id,
+          name: item.name,
+          description: item.description,
+          price: Number(item.price),
+          imageUrl: item.imageUrl,
+          isVeg: item.isVeg,
+          isAvailable: item.isAvailable,
+          variants: item.variants.map((v) => ({
+            id: v.id,
+            name: v.name,
+            price: Number(v.price),
+          })),
+          addonGroups: item.addonGroups.map((link) => ({
+            id: link.addonGroup.id,
+            name: link.addonGroup.name,
+            addons: link.addonGroup.addons.map((a) => ({
+              id: a.id,
+              name: a.name,
+              price: Number(a.price),
+            })),
+          })),
+        })),
+      })),
+    }
+  }
+
+  // ── Public (unauthenticated) ──────────────────────────────────────────────────
+
+  async listPublicCategories(restaurantId: string) {
+    return this.prisma.menuCategory.findMany({
+      where: { restaurantId, isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      select: { id: true, name: true, description: true, imageUrl: true, sortOrder: true },
+    })
+  }
+
+  async listPublicItems(restaurantId: string, categoryId?: string) {
+    const items = await this.prisma.menuItem.findMany({
+      where: {
+        restaurantId,
+        isAvailable: true,
+        ...(categoryId ? { categoryId } : {}),
+      },
+      include: { category: { select: { id: true, name: true } } },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    })
+    return items.map(this.serializeItem)
+  }
+
+  async listPublicVariants(menuItemId: string) {
+    const variants = await this.prisma.menuItemVariant.findMany({
+      where: { menuItemId, isAvailable: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    })
+    return variants.map(this.serializeVariant)
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   private async assertCategoryOwner(restaurantId: string, id: string) {

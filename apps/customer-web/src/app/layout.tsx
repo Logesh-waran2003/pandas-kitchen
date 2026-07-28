@@ -1,15 +1,22 @@
 import type { Metadata } from "next"
+import { Inter } from "next/font/google"
 import "./globals.css"
+import { Toaster } from "sonner"
+
+const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "Pandas Kitchen",
-  description: "Order delicious food from Pandas Kitchen",
+  description: "Order food at your table",
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={inter.className}>
+        {children}
+        <Toaster position="top-center" />
+      </body>
     </html>
   )
 }

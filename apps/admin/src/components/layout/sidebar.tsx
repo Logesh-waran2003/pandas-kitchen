@@ -17,6 +17,7 @@ import {
   ChefHat,
   Users,
   Package,
+  Clock,
 } from "lucide-react"
 
 const navItems = [
@@ -26,6 +27,7 @@ const navItems = [
   { href: "/pos", label: "POS", icon: ShoppingCart },
   { href: "/kitchen", label: "Kitchen", icon: ChefHat },
   { href: "/inventory", label: "Inventory", icon: Package },
+  { href: "/shifts", label: "Shifts", icon: Clock },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/tables", label: "Tables", icon: Table },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },

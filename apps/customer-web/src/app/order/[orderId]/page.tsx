@@ -1,0 +1,297 @@
+"use client"
+import { useEffect, useState } from "react"
+import { useParams } from "next/navigation"
+import { toast } from "sonner"
+import { CheckCircle, Clock, ChefHat, Bell, Utensils, HelpCircle, PartyPopper, XCircle } from "lucide-react"
+import { connectSocket, disconnectSocket } from "@/lib/socket"
+
+type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "SERVED" | "CANCELLED"
+
+interface OrderItem {
+  id: string
+  name?: string
+  menuItem?: { id: string; name: string }
+  quantity: number
+  unitPrice: number
+  totalPrice: number
+  variantName?: string | null
+}
+
+interface Order {
+  id: string
+  orderNumber: string
+  status: OrderStatus
+  total: number
+  subtotal?: number
+  tax?: number
+  items: OrderItem[]
+  table?: { tableNumber: string } | null
+  createdAt?: string
+}
+
+const STATUS_STEPS: { key: OrderStatus; label: string; icon: React.ReactNode }[] = [
+  { key: "PENDING",    label: "Order Placed",   icon: <Clock className="w-4 h-4" /> },
+  { key: "CONFIRMED",  label: "Confirmed",       icon: <CheckCircle className="w-4 h-4" /> },
+  { key: "PREPARING",  label: "Preparing",       icon: <ChefHat className="w-4 h-4" /> },
+  { key: "READY",      label: "Ready",           icon: <Bell className="w-4 h-4" /> },
+  { key: "SERVED",     label: "Served",          icon: <Utensils className="w-4 h-4" /> },
+]
+
+const STATUS_ORDER: OrderStatus[] = ["PENDING", "CONFIRMED", "PREPARING", "READY", "SERVED"]
+
+function getStatusIndex(status: OrderStatus): number {
+  return STATUS_ORDER.indexOf(status)
+}
+
+function StatusMessage({ status }: { status: OrderStatus }) {
+  const msgs: Record<OrderStatus, string> = {
+    PENDING:   "Your order has been received. Waiting for confirmation…",
+    CONFIRMED: "Great! The kitchen has confirmed your order.",
+    PREPARING: "Your food is being prepared. Sit tight! 🍳",
+    READY:     "Your order is ready! A waiter will bring it to you shortly.",
+    SERVED:    "Enjoy your meal! 😊",
+    CANCELLED: "Your order was cancelled.",
+  }
+  return <p className="text-sm text-gray-500 text-center mt-2">{msgs[status]}</p>
+}
+
+function getCustomerToken(): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = localStorage.getItem("pk-customer-auth")
+    return raw ? JSON.parse(raw)?.token ?? null : null
+  } catch { return null }
+}
+
+export default function OrderTrackerPage() {
+  const { orderId } = useParams<{ orderId: string }>()
+  const [order, setOrder] = useState<Order | null>(null)
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false)
+  const [cancelled, setCancelled] = useState(false)
+
+  // ── Load order from localStorage (placed by menu page) ──────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    try {
+      const raw = localStorage.getItem("pk-last-order")
+      if (raw) {
+        const stored = JSON.parse(raw) as Order
+        if (stored.id === orderId) {
+          setOrder(stored)
+        }
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, [orderId])
+
+  // ── Socket: live updates ─────────────────────────────────────────────────
+  useEffect(() => {
+    const token = getCustomerToken()
+    if (!token) return // socket requires auth
+
+    const socket = connectSocket(token)
+
+    socket.on("connect", () => {
+      socket.emit("join:order", orderId)
+    })
+
+    socket.on("order.status_changed", (data: { id: string; status: OrderStatus }) => {
+      if (data.id !== orderId) return
+      setOrder((prev) => prev ? { ...prev, status: data.status } : prev)
+      if (data.status === "CANCELLED") {
+        setCancelled(true)
+      }
+    })
+
+    socket.on("payment.completed", (data: { orderId: string }) => {
+      if (data.orderId !== orderId) return
+      setPaymentConfirmed(true)
+    })
+
+    socket.on("order.cancelled", (data: { id: string }) => {
+      if (data.id !== orderId) return
+      setCancelled(true)
+      setOrder((prev) => prev ? { ...prev, status: "CANCELLED" } : prev)
+    })
+
+    return () => {
+      socket.off("connect")
+      socket.off("order.status_changed")
+      socket.off("payment.completed")
+      socket.off("order.cancelled")
+      disconnectSocket()
+    }
+  }, [orderId])
+
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (!order) {
+    return (
+      <div className="min-h-screen bg-orange-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-5xl mb-4">🐼</div>
+          <p className="text-gray-500 text-sm">Loading your order…</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Payment confirmed screen ──────────────────────────────────────────────
+  if (paymentConfirmed) {
+    return (
+      <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
+        <div className="text-center">
+          <PartyPopper className="w-16 h-16 text-orange-500 mx-auto mb-4" />
+          <h2 className="text-2xl font-extrabold text-gray-900 mb-2">Payment Confirmed!</h2>
+          <p className="text-gray-500 mb-1">Thank you for dining with us.</p>
+          <p className="text-sm text-gray-400">Order {order.orderNumber}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Cancelled screen ──────────────────────────────────────────────────────
+  if (cancelled || order.status === "CANCELLED") {
+    return (
+      <div className="min-h-screen bg-orange-50 flex items-center justify-center p-6">
+        <div className="text-center">
+          <XCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Order Cancelled</h2>
+          <p className="text-gray-500 text-sm">Order {order.orderNumber} was cancelled.</p>
+          <p className="text-gray-400 text-sm mt-1">Please speak to your waiter for assistance.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const currentIdx = getStatusIndex(order.status)
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-10">
+      {/* Header */}
+      <div className="bg-orange-500 px-4 py-5 text-white">
+        <p className="text-sm opacity-80 mb-0.5">Order Tracker</p>
+        <h1 className="text-2xl font-extrabold">{order.orderNumber}</h1>
+        {order.table && (
+          <p className="text-sm opacity-80 mt-0.5">Table {order.table.tableNumber}</p>
+        )}
+      </div>
+
+      <div className="px-4 py-5 space-y-5">
+        {/* Status stepper */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
+            Order Status
+          </h2>
+
+          <div className="space-y-0">
+            {STATUS_STEPS.map((step, idx) => {
+              const isDone    = idx < currentIdx
+              const isCurrent = idx === currentIdx
+              const isFuture  = idx > currentIdx
+              const isLast    = idx === STATUS_STEPS.length - 1
+
+              return (
+                <div key={step.key} className="flex items-start gap-3">
+                  {/* Icon + connector */}
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${
+                        isDone
+                          ? "bg-orange-500 text-white"
+                          : isCurrent
+                          ? "bg-orange-500 text-white ring-4 ring-orange-100"
+                          : "bg-gray-100 text-gray-400"
+                      }`}
+                    >
+                      {isDone ? <CheckCircle className="w-4 h-4" /> : step.icon}
+                    </div>
+                    {!isLast && (
+                      <div
+                        className={`w-0.5 h-8 mt-0.5 ${isDone ? "bg-orange-500" : "bg-gray-200"}`}
+                      />
+                    )}
+                  </div>
+
+                  {/* Label */}
+                  <div className="pt-1.5 pb-6">
+                    <p
+                      className={`text-sm font-semibold ${
+                        isCurrent ? "text-orange-600" : isDone ? "text-gray-900" : "text-gray-400"
+                      }`}
+                    >
+                      {step.label}
+                    </p>
+                    {isCurrent && (
+                      <span className="text-xs bg-orange-100 text-orange-600 rounded-full px-2 py-0.5 mt-0.5 inline-block font-medium">
+                        In progress
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <StatusMessage status={order.status} />
+        </div>
+
+        {/* Items */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            Your Items
+          </h2>
+          <div className="space-y-3">
+            {order.items.map((item, i) => {
+              const name = item.name ?? item.menuItem?.name ?? "Item"
+              const linePrice = Number(item.totalPrice ?? 0)
+              return (
+                <div key={item.id ?? i} className="flex items-start justify-between">
+                  <div className="flex-1 mr-3">
+                    <p className="text-sm font-medium text-gray-900">{name}</p>
+                    {item.variantName && (
+                      <p className="text-xs text-gray-400">{item.variantName}</p>
+                    )}
+                    <p className="text-xs text-gray-400">× {item.quantity}</p>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-800">
+                    ₹{linePrice.toFixed(2)}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="border-t border-gray-100 mt-4 pt-4 space-y-1.5">
+            {order.subtotal !== undefined && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Subtotal</span>
+                <span>₹{Number(order.subtotal).toFixed(2)}</span>
+              </div>
+            )}
+            {order.tax !== undefined && (
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>Tax &amp; charges</span>
+                <span>₹{Number(order.tax).toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-base font-bold text-gray-900 pt-1">
+              <span>Total</span>
+              <span>₹{Number(order.total).toFixed(2)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Help button */}
+        <button
+          onClick={() => toast.info("Please call your waiter for assistance.")}
+          className="w-full flex items-center justify-center gap-2 border-2 border-orange-200 text-orange-600 rounded-2xl py-3.5 font-semibold text-sm bg-white"
+          aria-label="Need help"
+        >
+          <HelpCircle className="w-4 h-4" />
+          Need Help?
+        </button>
+      </div>
+    </div>
+  )
+}

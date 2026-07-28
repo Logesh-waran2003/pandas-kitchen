@@ -46,7 +46,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.data.branchId = payload.branchId
       client.data.role = payload.role
 
-      this.logger.log(`Client connected: ${client.id} (user: ${payload.sub})`)
+      // Customers auto-join their restaurant room; staff join via explicit messages
+      if (payload.role === "CUSTOMER") {
+        client.join(`restaurant:${payload.restaurantId}`)
+      }
+
+      this.logger.log(`Client connected: ${client.id} (user: ${payload.sub}, role: ${payload.role})`)
     } catch {
       client.disconnect()
     }
@@ -74,6 +79,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { joined: `kitchen:${branchId}` }
   }
 
+  @SubscribeMessage("join:order")
+  handleJoinOrder(
+    @MessageBody() orderId: string,
+    @ConnectedSocket() client: Socket,
+  ) {
+    client.join(`order:${orderId}`)
+    return { joined: `order:${orderId}` }
+  }
+
   // ── Emit helpers (called by services) ─────────────────────────────────────
 
   emitToKitchen(branchId: string, event: string, payload: any) {
@@ -82,5 +96,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitToBranch(branchId: string, event: string, payload: any) {
     this.server.to(`branch:${branchId}`).emit(event, payload)
+  }
+
+  emitToOrder(orderId: string, event: string, payload: any) {
+    this.server.to(`order:${orderId}`).emit(event, payload)
+  }
+
+  emitToRoom(room: string, event: string, data: any) {
+    this.server.to(room).emit(event, data)
   }
 }

@@ -1,12 +1,12 @@
 import { Module } from "@nestjs/common"
+import { ShiftsController } from "./shifts.controller"
+import { ShiftsService } from "./shifts.service"
 import { PrismaModule } from "../prisma/prisma.module"
 import { EventsModule } from "../events/events.module"
-import { TablesController } from "./tables.controller"
-import { TablesService } from "./tables.service"
 
 @Module({
   imports: [PrismaModule, EventsModule],
-  controllers: [TablesController],
-  providers: [TablesService],
+  controllers: [ShiftsController],
+  providers: [ShiftsService],
 })
-export class TablesModule {}
+export class ShiftsModule {}

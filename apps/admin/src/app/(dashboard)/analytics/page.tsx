@@ -89,7 +89,7 @@ export default function AnalyticsPage() {
 
   async function loadRevenue() {
     setRevLoading(true); setRevError(null)
-    try { setRevenue(await apiFetch<RevenuePoint[]>("/analytics/daily-revenue")) }
+    try { setRevenue(await apiFetch<RevenuePoint[]>("/analytics/revenue")) }
     catch (e) { setRevError(e instanceof Error ? e.message : "Failed") }
     finally { setRevLoading(false) }
   }

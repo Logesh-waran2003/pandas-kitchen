@@ -1,0 +1,15 @@
+Built: 2026-07-29
+Pages:
+  - /table/[tableId]     Welcome hero + CTA → navigates to /menu
+  - /menu/[restaurantId] Menu browse, variant picker, cart drawer, customer login modal, socket table.status_changed
+  - /order/[orderId]     Live order tracker — socket join:order, status stepper, payment.completed, order.cancelled screens
+Files created/modified:
+  - apps/customer-web/src/lib/socket.ts          (socket singleton)
+  - apps/customer-web/src/app/table/[tableId]/page.tsx
+  - apps/customer-web/src/app/menu/[restaurantId]/page.tsx
+  - apps/customer-web/src/app/order/[orderId]/page.tsx  (NEW)
+Build: PASS (bun run build — zero TS errors)
+Notes:
+  - Socket requires JWT; connects only when customer is logged in
+  - GET /orders/:id requires staff JWT; order tracker reads from localStorage
+  - POST /auth/customer/login UI built; backend endpoint not yet on API

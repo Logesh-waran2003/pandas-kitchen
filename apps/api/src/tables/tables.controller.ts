@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from "@nestjs/swagger"
 import { TablesService } from "./tables.service"
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard"
 import { CurrentUser } from "../auth/decorators/current-user.decorator"
+import { Public } from "../auth/decorators/public.decorator"
 import { CreateTableDto } from "./dto/create-table.dto"
 import { UpdateTableDto } from "./dto/update-table.dto"
 import { UpdateTableStatusDto } from "./dto/update-table-status.dto"
@@ -23,6 +24,13 @@ import { UpdateTableStatusDto } from "./dto/update-table-status.dto"
 @Controller("tables")
 export class TablesController {
   constructor(private tablesService: TablesService) {}
+
+  @Public()
+  @Get(":id/public")
+  @ApiOperation({ summary: "Public table info for QR landing" })
+  getPublicTable(@Param("id") id: string) {
+    return this.tablesService.getPublicTable(id)
+  }
 
   @Get()
   @ApiOperation({ summary: "List all tables for a branch" })

@@ -14,6 +14,13 @@ const LoginSchema = z.object({
   password: z.string().min(6),
 })
 
+const CustomerLoginSchema = z.object({
+  restaurantId: z.string().min(1),
+  phone: z.string().min(1),
+  firstName: z.string().min(1),
+  lastName: z.string().optional(),
+})
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -124,6 +131,49 @@ export class AuthService {
       where: { userId, token },
     })
     return { success: true }
+  }
+
+  async customerLogin(body: unknown) {
+    const parsed = CustomerLoginSchema.safeParse(body)
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten())
+    }
+    const { restaurantId, phone, firstName, lastName } = parsed.data
+
+    let customer = await this.prisma.customer.findUnique({
+      where: { restaurantId_phone: { restaurantId, phone } },
+    })
+
+    if (!customer) {
+      customer = await this.prisma.customer.create({
+        data: {
+          restaurantId,
+          phone,
+          name: lastName ? `${firstName} ${lastName}` : firstName,
+        },
+      })
+    }
+
+    const payload: JwtPayload = {
+      sub: customer.id,
+      role: "CUSTOMER",
+      restaurantId,
+    }
+
+    const accessToken = this.jwt.sign(payload, {
+      secret: process.env.JWT_SECRET,
+      expiresIn: process.env.JWT_EXPIRES_IN ?? "15m",
+    })
+
+    return {
+      accessToken,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        restaurantId: customer.restaurantId,
+      },
+    }
   }
 
   async me(userId: string) {

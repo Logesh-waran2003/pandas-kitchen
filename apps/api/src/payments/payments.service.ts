@@ -5,13 +5,16 @@ import {
   BadRequestException,
 } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
-import { PaymentStatus } from "@prisma/client"
+import { EventsGateway } from "../events/events.gateway"
 import { CreatePaymentDto } from "./dto/create-payment.dto"
 import { Decimal } from "@prisma/client/runtime/library"
 
 @Injectable()
 export class PaymentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventsGateway,
+  ) {}
 
   async listPayments(restaurantId: string, orderId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } })
@@ -66,10 +69,32 @@ export class PaymentsService {
         data: { paymentStatus, status: orderStatus },
       })
 
-      return created
+      return { created, paymentStatus, orderStatus, totalPaid, orderTotal }
     })
 
-    return this.serialize(payment)
+    const serialized = this.serialize(payment.created)
+
+    // Emit payment.created to order room
+    this.events.emitToOrder(dto.orderId, "payment.created", {
+      id: serialized.id,
+      orderId: dto.orderId,
+      amount: serialized.amount,
+      method: serialized.method,
+      status: serialized.status,
+    })
+
+    // If fully paid, also emit payment.completed to branch + order rooms
+    if (payment.paymentStatus === "PAID") {
+      const completedPayload = {
+        orderId: dto.orderId,
+        totalPaid: Number(payment.totalPaid),
+        orderStatus: payment.orderStatus,
+      }
+      this.events.emitToBranch(order.branchId, "payment.completed", completedPayload)
+      this.events.emitToOrder(dto.orderId, "payment.completed", completedPayload)
+    }
+
+    return serialized
   }
 
   async refundPayment(restaurantId: string, id: string) {

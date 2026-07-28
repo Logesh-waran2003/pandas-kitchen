@@ -1,12 +1,16 @@
-import { Injectable, NotFoundException, ForbiddenException } from "@nestjs/common"
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
+import { EventsGateway } from "../events/events.gateway"
 import { CreateTableDto } from "./dto/create-table.dto"
 import { UpdateTableDto } from "./dto/update-table.dto"
 import { UpdateTableStatusDto } from "./dto/update-table-status.dto"
 
 @Injectable()
 export class TablesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventsGateway,
+  ) {}
 
   async listTables(restaurantId: string, branchId: string) {
     return this.prisma.table.findMany({
@@ -59,11 +63,36 @@ export class TablesService {
   }
 
   async updateStatus(restaurantId: string, id: string, dto: UpdateTableStatusDto) {
-    await this.assertOwner(restaurantId, id)
-    return this.prisma.table.update({
+    const table = await this.assertOwner(restaurantId, id)
+    const updated = await this.prisma.table.update({
       where: { id },
       data: { status: dto.status },
     })
+    this.events.emitToBranch(table.branchId, "table.status_changed", {
+      id: updated.id,
+      tableNumber: updated.tableNumber,
+      status: updated.status,
+    })
+    return updated
+  }
+
+  async getPublicTable(id: string) {
+    const table = await this.prisma.table.findUnique({
+      where: { id },
+      include: {
+        restaurant: { select: { id: true, name: true, slug: true, themeColor: true } },
+      },
+    })
+    if (!table || !table.isActive) throw new NotFoundException("Table not found")
+    return {
+      id: table.id,
+      tableNumber: table.tableNumber,
+      branchId: table.branchId,
+      restaurantId: table.restaurantId,
+      restaurantName: table.restaurant.name,
+      restaurantSlug: table.restaurant.slug,
+      themeColor: table.restaurant.themeColor,
+    }
   }
 
   private async assertOwner(restaurantId: string, id: string) {

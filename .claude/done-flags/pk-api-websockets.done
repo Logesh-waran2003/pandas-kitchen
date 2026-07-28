@@ -1,0 +1,50 @@
+completed: 2026-07-29
+
+## Summary of changes
+
+### Task 1: Customer Auth — POST /auth/customer/login
+- auth/interfaces/jwt-payload.interface.ts — made `email` optional (customer JWTs have no email)
+- auth/auth.service.ts — added `CustomerLoginSchema` + `customerLogin()` method: upserts Customer by restaurantId+phone, returns JWT with role=CUSTOMER
+- auth/auth.controller.ts — added `@Public() POST auth/customer/login` route
+
+### Task 2: Public Menu Endpoint — GET /menu/public/:restaurantId
+- menu/menu.service.ts — added `listPublicMenu()`: returns { restaurant, categories[{ id, name, items[{ id, name, description, price, imageUrl, isVeg, isAvailable, variants, addonGroups }] }] }, only isAvailable=true items/variants/addons
+- menu/menu.controller.ts — added `@Public() GET menu/public/:restaurantId` route
+
+### Task 3: WebSocket events wired everywhere
+
+**events/events.gateway.ts**
+- Added `join:order` SubscribeMessage handler → joins `order:{orderId}` room
+- Added `emitToOrder()` helper
+- Added `emitToRoom()` helper
+- CUSTOMER JWTs now accepted: auto-join `restaurant:{restaurantId}` room on connect
+- Improved connect log to include role
+
+**orders/orders.service.ts**
+- `updateStatus()` → emits `order.status_changed` to `branch:{branchId}` + `order:{orderId}`
+- `cancelOrder()` → emits `order.cancelled` to `branch:{branchId}` + `order:{orderId}`
+- (order.created was already emitting to branch)
+
+**payments/payments.service.ts** — added EventsGateway injection
+- `createPayment()` → emits `payment.created` to `order:{orderId}` on every payment
+- `createPayment()` → emits `payment.completed` to `branch:{branchId}` + `order:{orderId}` when fully paid
+
+**tables/tables.service.ts** — added EventsGateway injection
+- `updateStatus()` → emits `table.status_changed` to `branch:{branchId}`
+
+**shifts/shifts.service.ts** — added EventsGateway injection
+- `openShift()` → emits `shift.opened` to `branch:{branchId}`
+- `closeShift()` → emits `shift.closed` to `branch:{branchId}`
+
+**kitchen/kitchen.service.ts** — already had EventsGateway; already emitting:
+- `kot.created` → emitToKitchen (branch kitchen room)
+- `kot.status_changed` → emitToKitchen
+- `kot.item_updated` → emitToKitchen
+
+### Module wiring
+- payments/payments.module.ts — added EventsModule import
+- tables/tables.module.ts — added EventsModule import
+- shifts/shifts.module.ts — added EventsModule import
+
+### Build
+- `bun run build` passes with 0 errors

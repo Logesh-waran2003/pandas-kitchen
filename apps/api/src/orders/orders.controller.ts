@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from "@nestjs/swagger"
 import { OrdersService } from "./orders.service"
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard"
 import { CurrentUser } from "../auth/decorators/current-user.decorator"
+import { Public } from "../auth/decorators/public.decorator"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
 
@@ -22,6 +23,16 @@ import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
 @Controller("orders")
 export class OrdersController {
   constructor(private ordersService: OrdersService) {}
+
+  @Public()
+  @Post("public")
+  @ApiOperation({ summary: "Public: place an order from QR table (no auth required)" })
+  createPublicOrder(@Body() dto: CreateOrderDto) {
+    // restaurantId is derived from branchId inside createOrder — pass empty string;
+    // service fetches branch to validate, but also needs restaurantId match.
+    // Use a dedicated service method that resolves restaurantId from branchId.
+    return this.ordersService.createPublicOrder(dto)
+  }
 
   @Get()
   @ApiOperation({ summary: "List orders with optional filters" })

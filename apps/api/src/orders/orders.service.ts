@@ -73,6 +73,15 @@ export class OrdersService {
     return this.serializeOrder(order)
   }
 
+  async createPublicOrder(dto: CreateOrderDto) {
+    // Resolve restaurantId from branchId — no auth context available
+    const branch = await this.prisma.branch.findUnique({ where: { id: dto.branchId } })
+    if (!branch || !branch.isActive) {
+      throw new NotFoundException("Branch not found")
+    }
+    return this.createOrder(branch.restaurantId, "", dto)
+  }
+
   async createOrder(restaurantId: string, userId: string, dto: CreateOrderDto) {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException("Order must have at least one item")
@@ -187,7 +196,7 @@ export class OrdersService {
           gstAmount: gstAmt,
           total,
           paymentStatus: "UNPAID",
-          createdById: userId,
+          createdById: userId || null,
           items: {
             create: lineItems.map((l) => ({
               menuItemId: l.menuItemId,
@@ -262,6 +271,11 @@ export class OrdersService {
         },
       },
     })
+
+    const statusPayload = { id: order.id, orderNumber: order.orderNumber, status: order.status }
+    this.events.emitToBranch(order.branchId, "order.status_changed", statusPayload)
+    this.events.emitToOrder(order.id, "order.status_changed", statusPayload)
+
     return this.serializeOrder(order)
   }
 
@@ -285,6 +299,11 @@ export class OrdersService {
         },
       },
     })
+
+    const cancelPayload = { id: updated.id, orderNumber: updated.orderNumber, status: "CANCELLED" }
+    this.events.emitToBranch(updated.branchId, "order.cancelled", cancelPayload)
+    this.events.emitToOrder(updated.id, "order.cancelled", cancelPayload)
+
     return this.serializeOrder(updated)
   }
 

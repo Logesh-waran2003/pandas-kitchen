@@ -13,6 +13,7 @@ import { KitchenModule } from "./kitchen/kitchen.module"
 import { PaymentsModule } from "./payments/payments.module"
 import { EventsModule } from "./events/events.module"
 import { InventoryModule } from "./inventory/inventory.module"
+import { ShiftsModule } from "./shifts/shifts.module"
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { InventoryModule } from "./inventory/inventory.module"
     PaymentsModule,
     EventsModule,
     InventoryModule,
+    ShiftsModule,
   ],
 })
 export class AppModule {}

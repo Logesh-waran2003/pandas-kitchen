@@ -28,6 +28,13 @@ export class AuthController {
   }
 
   @Public()
+  @Post("customer/login")
+  @ApiOperation({ summary: "Customer login — create or find by phone" })
+  customerLogin(@Body() body: unknown) {
+    return this.authService.customerLogin(body)
+  }
+
+  @Public()
   @Post("refresh")
   @ApiOperation({ summary: "Refresh access token" })
   refresh(@Body() body: RefreshTokenDto) {

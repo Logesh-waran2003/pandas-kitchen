@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { apiFetch } from "@/lib/api"
 import { formatCurrency, formatDate } from "@/lib/utils"
 import { toast } from "sonner"
-import { Plus, X, ChevronDown, Eye, ShoppingBag } from "lucide-react"
+import { Plus, X, ChevronDown, Eye, ShoppingBag, ArrowRightLeft, Receipt, GitMerge } from "lucide-react"
 
 type OrderStatus =
   | "PENDING"
@@ -26,6 +26,7 @@ interface Order {
   branchId: string
   branchName?: string
   status: OrderStatus
+  orderType?: string
   totalAmount: number
   notes?: string
   items: OrderItem[]
@@ -125,6 +126,143 @@ function ViewOrderModal({ order, onClose }: { order: Order; onClose: () => void 
 }
 
 interface NewOrderLine { menuItemId: string; name: string; price: number; quantity: number; notes: string }
+
+function MergeTablesModal({ orders, onClose, onMerged }: { orders: Order[]; onClose: () => void; onMerged: () => void }) {
+  const activeOrders = orders.filter((o) => !["PAID", "CANCELLED"].includes(o.status) && o.orderType === "DINE_IN")
+  const [primaryId, setPrimaryId] = useState(activeOrders[0]?.id ?? "")
+  const [secondaryId, setSecondaryId] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  async function handleMerge() {
+    if (!primaryId || !secondaryId) { toast.error("Select both orders"); return }
+    if (primaryId === secondaryId) { toast.error("Orders must be different"); return }
+    setSaving(true)
+    try {
+      await apiFetch("/tables/merge", {
+        method: "POST",
+        body: JSON.stringify({ primaryOrderId: primaryId, secondaryOrderId: secondaryId }),
+      })
+      toast.success("Tables merged")
+      onMerged()
+      onClose()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Merge failed")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const selectCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+
+  return (
+    <Modal title="Merge Tables" onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm text-gray-500">
+          Items from the secondary order will be moved into the primary order. The secondary order will be cancelled and its table freed.
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Keep this order (primary)</label>
+          <select value={primaryId} onChange={(e) => setPrimaryId(e.target.value)} className={selectCls}>
+            <option value="">— Select primary order —</option>
+            {activeOrders.map((o) => (
+              <option key={o.id} value={o.id}>
+                #{o.orderNumber ?? o.id.slice(-6).toUpperCase()} · T{o.tableNumber ?? "—"} · {o.items.length} items
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Merge into it from (secondary)</label>
+          <select value={secondaryId} onChange={(e) => setSecondaryId(e.target.value)} className={selectCls}>
+            <option value="">— Select secondary order —</option>
+            {activeOrders
+              .filter((o) => o.id !== primaryId)
+              .map((o) => (
+                <option key={o.id} value={o.id}>
+                  #{o.orderNumber ?? o.id.slice(-6).toUpperCase()} · T{o.tableNumber ?? "—"} · {o.items.length} items
+                </option>
+              ))}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button
+            type="button"
+            onClick={handleMerge}
+            disabled={saving || !primaryId || !secondaryId}
+            className="px-4 py-2 text-sm bg-orange-500 hover:bg-orange-600 text-white rounded-lg disabled:opacity-60"
+          >
+            {saving ? "Merging…" : "Merge Tables"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function TransferTableModal({ order, onClose, onTransferred }: { order: Order; onClose: () => void; onTransferred: () => void }) {
+  const [tables, setTables] = useState<TableOption[]>([])
+  const [newTableId, setNewTableId] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    apiFetch<TableOption[]>(`/tables?branchId=${order.branchId}`)
+      .then(all => setTables(all.filter(t => t.id !== order.tableId)))
+      .catch(() => {})
+  }, [order.branchId, order.tableId])
+
+  async function handleTransfer() {
+    if (!newTableId) { toast.error("Select a table"); return }
+    setSaving(true)
+    try {
+      await apiFetch("/tables/transfer", {
+        method: "PATCH",
+        body: JSON.stringify({ orderId: order.id, newTableId }),
+      })
+      toast.success("Order transferred to new table")
+      onTransferred()
+      onClose()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Transfer failed")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title={`Transfer Order #${order.orderNumber ?? order.id.slice(-6).toUpperCase()}`} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm text-gray-500">
+          Current table: <strong>{order.tableNumber ? `T${order.tableNumber}` : "— none —"}</strong>
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Move to table</label>
+          <select
+            value={newTableId}
+            onChange={e => setNewTableId(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          >
+            <option value="">— Select available table —</option>
+            {tables.map(t => (
+              <option key={t.id} value={t.id}>{t.tableNumber}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button
+            type="button"
+            onClick={handleTransfer}
+            disabled={saving || !newTableId}
+            className="px-4 py-2 text-sm bg-orange-500 hover:bg-orange-600 text-white rounded-lg disabled:opacity-60"
+          >
+            {saving ? "Transferring…" : "Transfer"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
 
 function NewOrderModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [branches, setBranches] = useState<Branch[]>([])
@@ -315,6 +453,8 @@ export default function OrdersPage() {
   const [viewOrder, setViewOrder] = useState<Order | null>(null)
   const [showNewOrder, setShowNewOrder] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [transferOrder, setTransferOrder] = useState<Order | null>(null)
+  const [showMerge, setShowMerge] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -350,12 +490,20 @@ export default function OrdersPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
-        <button
-          onClick={() => setShowNewOrder(true)}
-          className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg"
-        >
-          <Plus className="w-4 h-4" /> New Order
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowMerge(true)}
+            className="flex items-center gap-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg"
+          >
+            <GitMerge className="w-4 h-4" /> Merge Tables
+          </button>
+          <button
+            onClick={() => setShowNewOrder(true)}
+            className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg"
+          >
+            <Plus className="w-4 h-4" /> New Order
+          </button>
+        </div>
       </div>
 
       {/* Status tabs */}
@@ -438,6 +586,24 @@ export default function OrdersPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {order.status === "PAID" && (
+                          <button
+                            onClick={() => window.open(`/orders/${order.id}/receipt`, "_blank")}
+                            className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+                            title="View receipt"
+                          >
+                            <Receipt className="w-4 h-4" />
+                          </button>
+                        )}
+                        {!["PAID", "CANCELLED"].includes(order.status) && order.orderType === "DINE_IN" && (
+                          <button
+                            onClick={() => setTransferOrder(order)}
+                            className="p-1.5 rounded hover:bg-gray-100 text-orange-500"
+                            title="Transfer table"
+                          >
+                            <ArrowRightLeft className="w-4 h-4" />
+                          </button>
+                        )}
                         {nexts.length > 0 && (
                           <div className="relative group">
                             <button
@@ -480,6 +646,8 @@ export default function OrdersPage() {
 
       {viewOrder && <ViewOrderModal order={viewOrder} onClose={() => setViewOrder(null)} />}
       {showNewOrder && <NewOrderModal onClose={() => setShowNewOrder(false)} onCreated={load} />}
+      {transferOrder && <TransferTableModal order={transferOrder} onClose={() => setTransferOrder(null)} onTransferred={load} />}
+      {showMerge && <MergeTablesModal orders={orders} onClose={() => setShowMerge(false)} onMerged={load} />}
     </div>
   )
 }

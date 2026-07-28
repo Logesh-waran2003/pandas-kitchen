@@ -28,6 +28,7 @@ model Restaurant {
   menuAddonGroups MenuAddonGroup[]
   inventoryItems  InventoryItem[]
   shifts          Shift[]
+  reservations    Reservation[]
 }
 
 model Branch {
@@ -45,6 +46,7 @@ model Branch {
   kotTickets     KOTTicket[]
   inventoryItems InventoryItem[]
   shifts         Shift[]
+  reservations   Reservation[]
 }
 
 model User {
@@ -125,6 +127,7 @@ model MenuItem {
   orderItems      OrderItem[]
   variants        MenuItemVariant[]
   addonGroups     MenuItemAddonGroup[]
+  ingredients     MenuItemIngredient[]
 
   @@index([restaurantId, isAvailable])
   @@index([categoryId])
@@ -414,12 +417,24 @@ model InventoryItem {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  restaurant   Restaurant        @relation(fields: [restaurantId], references: [id])
-  branch       Branch            @relation(fields: [branchId], references: [id])
+  restaurant   Restaurant           @relation(fields: [restaurantId], references: [id])
+  branch       Branch               @relation(fields: [branchId], references: [id])
   adjustments  StockAdjustment[]
+  usedIn       MenuItemIngredient[]
 
   @@index([restaurantId, branchId])
   @@index([restaurantId, isActive])
+}
+
+model MenuItemIngredient {
+  id              String        @id @default(cuid())
+  menuItemId      String
+  inventoryItemId String
+  quantity        Decimal       @db.Decimal(10, 3)
+  menuItem        MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([menuItemId])
 }
 
 model StockAdjustment {
@@ -470,4 +485,33 @@ model Shift {
 enum ShiftStatus {
   OPEN
   CLOSED
+}
+
+model Reservation {
+  id           String            @id @default(cuid())
+  restaurantId String
+  branchId     String
+  tableId      String?
+  customerName String
+  phone        String
+  partySize    Int
+  date         DateTime
+  notes        String?
+  status       ReservationStatus @default(UPCOMING)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  restaurant   Restaurant        @relation(fields: [restaurantId], references: [id])
+  branch       Branch            @relation(fields: [branchId], references: [id])
+  table        Table?            @relation(fields: [tableId], references: [id])
+
+  @@index([restaurantId, date])
+  @@index([branchId, status])
+}
+
+enum ReservationStatus {
+  UPCOMING
+  SEATED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
 }

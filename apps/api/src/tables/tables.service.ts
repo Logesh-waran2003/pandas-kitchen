@@ -81,6 +81,84 @@ export class TablesService {
     return updated
   }
 
+  async mergeTables(primaryOrderId: string, secondaryOrderId: string, restaurantId: string) {
+    const [primary, secondary] = await Promise.all([
+      this.prisma.order.findUnique({ where: { id: primaryOrderId }, include: { items: true } }),
+      this.prisma.order.findUnique({ where: { id: secondaryOrderId }, include: { items: true } }),
+    ])
+
+    if (!primary || primary.restaurantId !== restaurantId) throw new NotFoundException("Primary order not found")
+    if (!secondary || secondary.restaurantId !== restaurantId) throw new NotFoundException("Secondary order not found")
+    if (["CLOSED", "CANCELLED", "PAID"].includes(primary.status)) throw new BadRequestException("Primary order is closed")
+    if (["CLOSED", "CANCELLED", "PAID"].includes(secondary.status)) throw new BadRequestException("Secondary order is closed")
+
+    const mergedItemCount = secondary.items.length
+
+    await this.prisma.$transaction(async (tx) => {
+      // Move all items from secondary to primary
+      await tx.orderItem.updateMany({
+        where: { orderId: secondaryOrderId },
+        data: { orderId: primaryOrderId },
+      })
+
+      // Recalculate primary totals from updated item list
+      const items = await tx.orderItem.findMany({ where: { orderId: primaryOrderId } })
+      const subtotal = items.reduce((s, i) => s + Number(i.totalPrice), 0)
+      const gstRate = Number(primary.gstRate ?? 5)
+      const gstAmt = parseFloat((subtotal * (gstRate / 100)).toFixed(2))
+      const serviceCharge = Number(primary.serviceCharge ?? 0)
+      const discount = Number(primary.discount ?? 0)
+      const total = subtotal + gstAmt + serviceCharge - discount
+
+      await tx.order.update({
+        where: { id: primaryOrderId },
+        data: {
+          subtotal,
+          tax: gstAmt,
+          gstAmount: gstAmt,
+          total,
+        },
+      })
+
+      // Cancel secondary order
+      await tx.order.update({
+        where: { id: secondaryOrderId },
+        data: { status: "CANCELLED" },
+      })
+
+      // Free the secondary table
+      if (secondary.tableId) {
+        await tx.table.update({ where: { id: secondary.tableId }, data: { status: "AVAILABLE" } })
+      }
+    })
+
+    this.events.emitToBranch(primary.branchId, "order.merged", { primaryOrderId, secondaryOrderId })
+    return { success: true, primaryOrderId, mergedItemCount }
+  }
+
+  async transferTable(orderId: string, newTableId: string, restaurantId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } })
+    if (!order || order.restaurantId !== restaurantId) throw new NotFoundException('Order not found')
+    if (['PAID', 'CANCELLED'].includes(order.status)) throw new BadRequestException('Cannot transfer a closed or cancelled order')
+
+    const newTable = await this.prisma.table.findUnique({ where: { id: newTableId } })
+    if (!newTable) throw new NotFoundException('Target table not found')
+    if (newTable.status !== 'AVAILABLE') throw new BadRequestException('Target table is not available')
+
+    const oldTableId = order.tableId
+    await this.prisma.$transaction([
+      this.prisma.order.update({ where: { id: orderId }, data: { tableId: newTableId } }),
+      this.prisma.table.update({ where: { id: newTableId }, data: { status: 'OCCUPIED' } }),
+      ...(oldTableId ? [this.prisma.table.update({ where: { id: oldTableId }, data: { status: 'AVAILABLE' } })] : []),
+    ])
+
+    this.events.emitToBranch(order.branchId, 'table.transferred', { orderId, fromTableId: oldTableId, toTableId: newTableId })
+    this.events.emitToBranch(order.branchId, 'table.status_changed', { tableId: newTableId, status: 'OCCUPIED' })
+    if (oldTableId) this.events.emitToBranch(order.branchId, 'table.status_changed', { tableId: oldTableId, status: 'AVAILABLE' })
+
+    return { success: true, orderId, newTableId }
+  }
+
   async getPublicTable(id: string) {
     const table = await this.prisma.table.findUnique({
       where: { id },

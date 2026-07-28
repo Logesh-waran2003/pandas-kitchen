@@ -51,6 +51,26 @@ export class TablesController {
     return this.tablesService.createTable(restaurantId, dto)
   }
 
+  @Patch("transfer")
+  @ApiOperation({ summary: "Transfer an active order to a different table" })
+  transferTable(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Body("orderId") orderId: string,
+    @Body("newTableId") newTableId: string,
+  ) {
+    return this.tablesService.transferTable(orderId, newTableId, restaurantId)
+  }
+
+  @Post("merge")
+  @ApiOperation({ summary: "Merge two tables — move secondary order items into primary, cancel secondary" })
+  mergeTables(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Body("primaryOrderId") primaryOrderId: string,
+    @Body("secondaryOrderId") secondaryOrderId: string,
+  ) {
+    return this.tablesService.mergeTables(primaryOrderId, secondaryOrderId, restaurantId)
+  }
+
   @Patch(":id")
   @ApiOperation({ summary: "Update a table" })
   updateTable(

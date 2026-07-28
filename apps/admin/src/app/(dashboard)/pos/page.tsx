@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { apiFetch } from "@/lib/api"
 import { formatCurrency } from "@/lib/utils"
 import { toast } from "sonner"
-import { Plus, Minus, X, User, CreditCard, Banknote, Smartphone, Globe } from "lucide-react"
+import { Plus, Minus, X, User, CreditCard, Banknote, Smartphone, Globe, SplitSquareHorizontal } from "lucide-react"
 
 interface Category { id: string; name: string }
 interface MenuItem { id: string; name: string; price: number; isVeg: boolean; isAvailable: boolean; categoryId: string }
@@ -76,6 +76,130 @@ function VariantModal({ item, variants, onSelect, onClose }: VariantModalProps) 
   )
 }
 
+type PersonKey = "p1" | "p2" | "p3"
+
+interface SplitBillModalProps {
+  cart: CartItem[]
+  subtotal: number
+  gstRate: number
+  serviceChargePct: number
+  discountAmt: number
+  onClose: () => void
+}
+
+function SplitBillModal({ cart, subtotal, gstRate, serviceChargePct, discountAmt, onClose }: SplitBillModalProps) {
+  const [personCount, setPersonCount] = useState(2)
+  // assignment: itemKey → person index (0-based)
+  const [assignments, setAssignments] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {}
+    cart.forEach((_, i) => { init[i] = 0 })
+    return init
+  })
+
+  const persons = Array.from({ length: personCount }, (_, i) => i)
+  const personLabels = ["Person 1", "Person 2", "Person 3", "Person 4"]
+
+  const afterDiscount = Math.max(0, subtotal - discountAmt)
+  const scRate = serviceChargePct / 100
+  const gstPct = gstRate / 100
+
+  const personTotals = persons.map(p => {
+    const items = cart.filter((_, i) => (assignments[i] ?? 0) === p)
+    const itemsSubtotal = items.reduce((s, c) => s + c.price * c.quantity, 0)
+    const ratio = subtotal > 0 ? itemsSubtotal / subtotal : 0
+    const scShare = afterDiscount * scRate * ratio
+    const gstBase = (afterDiscount * ratio) + scShare
+    const gstShare = gstBase * gstPct
+    return {
+      label: personLabels[p],
+      items,
+      subtotal: itemsSubtotal,
+      gstShare: Math.round(gstShare * 100) / 100,
+      total: Math.round((itemsSubtotal - discountAmt * ratio + scShare + gstShare) * 100) / 100,
+    }
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4 shrink-0">
+          <h3 className="text-lg font-semibold text-gray-900">Split Bill</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* Person count selector */}
+        <div className="flex items-center gap-2 mb-4 shrink-0">
+          <span className="text-sm text-gray-600">Split between:</span>
+          {[2, 3, 4].map(n => (
+            <button
+              key={n}
+              onClick={() => setPersonCount(n)}
+              className={`w-8 h-8 rounded-full text-sm font-semibold transition-colors ${personCount === n ? "bg-orange-500 text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+            >{n}</button>
+          ))}
+        </div>
+
+        {/* Item assignments */}
+        <div className="overflow-y-auto flex-1 mb-4">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2 text-gray-500 font-medium">Item</th>
+                {persons.map(p => (
+                  <th key={p} className="text-center px-2 py-2 text-gray-500 font-medium text-xs">{personLabels[p]}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {cart.map((item, i) => (
+                <tr key={`${item.menuItemId}-${i}`} className="border-t border-gray-100">
+                  <td className="px-3 py-2">
+                    <p className="font-medium text-gray-800">{item.name}</p>
+                    {item.variantName && <p className="text-xs text-gray-400">{item.variantName}</p>}
+                    <p className="text-xs text-gray-500">×{item.quantity} — {formatCurrency(item.price * item.quantity)}</p>
+                  </td>
+                  {persons.map(p => (
+                    <td key={p} className="text-center px-2 py-2">
+                      <input
+                        type="radio"
+                        name={`item-${i}`}
+                        checked={(assignments[i] ?? 0) === p}
+                        onChange={() => setAssignments(prev => ({ ...prev, [i]: p }))}
+                        className="accent-orange-500 w-4 h-4"
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Per-person totals */}
+        <div className="border-t border-gray-200 pt-3 shrink-0">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Split Summary</p>
+          <div className="grid grid-cols-2 gap-2">
+            {personTotals.map((pt, i) => (
+              <div key={i} className="bg-orange-50 rounded-lg p-3">
+                <p className="text-xs font-semibold text-orange-700 mb-1">{pt.label}</p>
+                <p className="text-xs text-gray-500">Items: {formatCurrency(pt.subtotal)}</p>
+                <p className="text-xs text-gray-500">GST: {formatCurrency(pt.gstShare)}</p>
+                <p className="text-sm font-bold text-orange-600 mt-1">{formatCurrency(pt.total)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-4 shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function POSPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
@@ -105,6 +229,7 @@ export default function POSPage() {
   const [submitting, setSubmitting] = useState(false)
 
   const [variantModal, setVariantModal] = useState<{ item: MenuItem; variants: Variant[] } | null>(null)
+  const [showSplitBill, setShowSplitBill] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -410,6 +535,15 @@ export default function POSPage() {
 
         {/* Payment */}
         <div className="border-t border-gray-200 p-3 space-y-2">
+          {cart.length > 0 && (
+            <button
+              onClick={() => setShowSplitBill(true)}
+              className="w-full flex items-center justify-center gap-2 border border-orange-200 text-orange-600 py-2 rounded-lg text-sm font-medium hover:bg-orange-50 transition-colors"
+            >
+              <SplitSquareHorizontal className="w-4 h-4" />
+              Split Bill
+            </button>
+          )}
           <div className="grid grid-cols-4 gap-1">
             {([["CASH", Banknote], ["CARD", CreditCard], ["UPI", Smartphone], ["ONLINE", Globe]] as [PaymentMethod, React.ElementType][]).map(([method, Icon]) => (
               <button key={method} onClick={() => setPaymentMethod(method)}
@@ -481,6 +615,18 @@ export default function POSPage() {
           variants={variantModal.variants}
           onSelect={(item, variant) => addToCart(item, variant)}
           onClose={() => setVariantModal(null)}
+        />
+      )}
+
+      {/* Split bill modal */}
+      {showSplitBill && (
+        <SplitBillModal
+          cart={cart}
+          subtotal={subtotal}
+          gstRate={gstRate}
+          serviceChargePct={serviceChargePct}
+          discountAmt={discountAmt}
+          onClose={() => setShowSplitBill(false)}
         />
       )}
     </div>

@@ -351,6 +351,18 @@ export default function OrderTrackerPage() {
           </div>
         </div>
 
+        {/* Receipt link for served/paid orders */}
+        {(order.status === "SERVED" || (order as any).status === "PAID") && (
+          <a
+            href={`${process.env.NEXT_PUBLIC_ADMIN_URL ?? "http://localhost:3000"}/orders/${orderId}/receipt`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-center gap-2 border-2 border-orange-200 text-orange-600 rounded-2xl py-3.5 font-semibold text-sm bg-white"
+          >
+            🧾 View Receipt
+          </a>
+        )}
+
         {/* Help */}
         <button
           onClick={() => toast.info("Please call your waiter for assistance.")}

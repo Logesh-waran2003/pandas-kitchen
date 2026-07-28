@@ -39,6 +39,16 @@ export class PaymentsController {
     return this.paymentsService.createPayment(restaurantId, dto)
   }
 
+  @Post("split-bill")
+  @ApiOperation({ summary: "Calculate split bill for an order" })
+  splitBill(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Body("orderId") orderId: string,
+    @Body("splits") splits: Array<{ items: string[]; extraAmount?: number }>,
+  ) {
+    return this.paymentsService.splitBill(orderId, splits, restaurantId)
+  }
+
   @Post(":id/refund")
   @ApiOperation({ summary: "Refund a payment" })
   refundPayment(

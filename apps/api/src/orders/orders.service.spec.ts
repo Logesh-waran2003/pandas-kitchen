@@ -63,6 +63,10 @@ function makeOrderResult(overrides: Record<string, any> = {}) {
   }
 }
 
+function makeInventoryService() {
+  return { deductForOrder: jest.fn().mockResolvedValue(undefined) }
+}
+
 describe("OrdersService", () => {
   let service: OrdersService
   let prisma: ReturnType<typeof makePrisma>
@@ -73,7 +77,7 @@ describe("OrdersService", () => {
     tx = makeTx()
     prisma = makePrisma(tx)
     events = makeEventGateway()
-    service = new OrdersService(prisma as any, events as any)
+    service = new OrdersService(prisma as any, events as any, makeInventoryService() as any, {} as any)
   })
 
   function setupBranchAndItems(items: Array<{ id: string; price: number }>) {

@@ -93,12 +93,16 @@ export default function MenuPage() {
   useEffect(() => {
     async function load() {
       try {
-        const [cats, menuItems] = await Promise.all([
-          apiFetch<Category[]>(`/menu/public/categories?restaurantId=${restaurantId}`),
-          apiFetch<MenuItem[]>(`/menu/public/items?restaurantId=${restaurantId}`),
-        ])
+        const data = await apiFetch<{
+          restaurant: { id: string; name: string; currency: string }
+          categories: Array<{ id: string; name: string; items: MenuItem[] }>
+        }>(`/menu/public/${restaurantId}`)
+        const cats = data.categories.map((c) => ({ id: c.id, name: c.name }))
+        const allItems = data.categories.flatMap((c) =>
+          c.items.map((i) => ({ ...i, categoryId: c.id }))
+        )
         setCategories(cats)
-        setItems(menuItems)
+        setItems(allItems)
       } catch {
         toast.error("Failed to load menu")
       } finally {

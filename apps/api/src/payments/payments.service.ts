@@ -97,6 +97,36 @@ export class PaymentsService {
     return serialized
   }
 
+  async splitBill(orderId: string, splits: Array<{ items: string[]; extraAmount?: number }>, restaurantId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    })
+    if (!order || order.restaurantId !== restaurantId) throw new NotFoundException('Order not found')
+
+    const result = splits.map((split, i) => {
+      const splitItems = order.items.filter(item => split.items.includes(item.id))
+      const itemsTotal = splitItems.reduce((s, item) => s + Number(item.totalPrice), 0)
+      const extra = split.extraAmount ?? 0
+      const subtotal = Number(order.subtotal)
+      const taxRatio = subtotal > 0 ? itemsTotal / subtotal : 0
+      const taxShare = Number(order.tax) * taxRatio
+      return {
+        splitIndex: i + 1,
+        items: splitItems.map(it => ({
+          id: it.id,
+          quantity: it.quantity,
+          price: Number(it.totalPrice),
+        })),
+        subtotal: itemsTotal,
+        taxShare: Math.round(taxShare * 100) / 100,
+        total: Math.round((itemsTotal + taxShare + extra) * 100) / 100,
+      }
+    })
+
+    return { orderId, splits: result, orderTotal: Number(order.total) }
+  }
+
   async refundPayment(restaurantId: string, id: string) {
     const payment = await this.prisma.payment.findUnique({ where: { id } })
     if (!payment) throw new NotFoundException("Payment not found")

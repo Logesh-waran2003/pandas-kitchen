@@ -6,6 +6,8 @@ import {
 } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
 import { EventsGateway } from "../events/events.gateway"
+import { InventoryService } from "../inventory/inventory.service"
+import { KitchenService } from "../kitchen/kitchen.service"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
 import { OrderStatus, OrderType } from "@prisma/client"
@@ -16,6 +18,8 @@ export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private events: EventsGateway,
+    private inventoryService: InventoryService,
+    private kitchenService: KitchenService,
   ) {}
 
   async listOrders(restaurantId: string, branchId?: string, status?: string, date?: string) {
@@ -304,6 +308,9 @@ export class OrdersService {
       total: Number(order.total),
     })
 
+    // Auto-generate KOT tickets for the new order (non-blocking — don't fail the order creation)
+    this.kitchenService.generateKOTsForOrder(order.id, order.branchId).catch(() => {})
+
     return this.serializeOrder(order)
   }
 
@@ -329,7 +336,50 @@ export class OrdersService {
     this.events.emitToBranch(order.branchId, "order.status_changed", statusPayload)
     this.events.emitToOrder(order.id, "order.status_changed", statusPayload)
 
+    // Re-run KOT generation on CONFIRMED — idempotent, handles any items missed on create
+    if (dto.status === "CONFIRMED") {
+      this.kitchenService.generateKOTsForOrder(order.id, order.branchId).catch(() => {})
+    }
+
+    // Auto-deduct inventory when order is served or paid
+    if (dto.status === "SERVED" || dto.status === "PAID") {
+      this.inventoryService.deductForOrder(id).catch(() => {
+        // Non-blocking — don't fail the status update if BOM deduction errors
+      })
+    }
+
     return this.serializeOrder(order)
+  }
+
+  async getReceipt(orderId: string, restaurantId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: true,
+        payments: { where: { status: "COMPLETED" } },
+        restaurant: { select: { name: true } },
+        branch: { select: { name: true } },
+        customer: { select: { name: true, phone: true } },
+        table: { select: { tableNumber: true } },
+      },
+    })
+    if (!order || order.restaurantId !== restaurantId) throw new NotFoundException("Order not found")
+    return {
+      ...order,
+      subtotal: Number(order.subtotal),
+      tax: Number(order.tax),
+      discount: Number(order.discount),
+      serviceCharge: Number(order.serviceCharge),
+      gstRate: Number(order.gstRate),
+      gstAmount: Number(order.gstAmount),
+      total: Number(order.total),
+      items: order.items.map((i: any) => ({
+        ...i,
+        unitPrice: Number(i.unitPrice),
+        totalPrice: Number(i.totalPrice),
+      })),
+      payments: order.payments.map((p: any) => ({ ...p, amount: Number(p.amount) })),
+    }
   }
 
   async cancelPublicOrder(orderId: string, customerId: string) {

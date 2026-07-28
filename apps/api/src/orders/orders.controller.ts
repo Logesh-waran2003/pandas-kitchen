@@ -55,6 +55,15 @@ export class OrdersController {
     return this.ordersService.listOrders(restaurantId, branchId, status, date)
   }
 
+  @Get(":id/receipt")
+  @ApiOperation({ summary: "Get receipt data for an order" })
+  getReceipt(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Param("id") id: string,
+  ) {
+    return this.ordersService.getReceipt(id, restaurantId)
+  }
+
   @Get(":id/track")
   @ApiOperation({ summary: "Track a single order by customer JWT" })
   trackOrder(

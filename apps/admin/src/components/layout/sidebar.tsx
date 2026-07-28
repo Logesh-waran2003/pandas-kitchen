@@ -19,6 +19,7 @@ import {
   Package,
   Clock,
   UserCog,
+  CalendarDays,
 } from "lucide-react"
 
 const navItems = [
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/kitchen", label: "Kitchen", icon: ChefHat },
   { href: "/inventory", label: "Inventory", icon: Package },
   { href: "/shifts", label: "Shifts", icon: Clock },
+  { href: "/reservations", label: "Reservations", icon: CalendarDays },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/employees", label: "Staff", icon: UserCog },
   { href: "/tables", label: "Tables", icon: Table },

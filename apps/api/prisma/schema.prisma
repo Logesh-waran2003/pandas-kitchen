@@ -203,6 +203,7 @@ model Table {
   restaurant   Restaurant  @relation(fields: [restaurantId], references: [id])
   branch       Branch      @relation(fields: [branchId], references: [id])
   orders       Order[]
+  reservations Reservation[]
 }
 
 model Customer {

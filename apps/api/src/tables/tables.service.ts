@@ -178,6 +178,20 @@ export class TablesService {
     }
   }
 
+  async getQRCode(tableId: string, restaurantId: string) {
+    const table = await this.prisma.table.findUnique({ where: { id: tableId } })
+    if (!table) throw new NotFoundException('Table not found')
+    if (table.restaurantId !== restaurantId) throw new NotFoundException('Table not found')
+
+    const CUSTOMER_URL = process.env.CUSTOMER_WEB_URL ?? 'http://192.168.0.109:3003'
+    const url = `${CUSTOMER_URL}/table/${tableId}`
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const QRCode = require('qrcode')
+    const qrDataUrl = await QRCode.toDataURL(url, { width: 300, margin: 2 })
+    return { qrDataUrl, tableNumber: table.tableNumber, url }
+  }
+
   private async assertOwner(restaurantId: string, id: string) {
     const table = await this.prisma.table.findUnique({ where: { id } })
     if (!table) throw new NotFoundException("Table not found")

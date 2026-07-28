@@ -32,6 +32,15 @@ export class TablesController {
     return this.tablesService.getPublicTable(id)
   }
 
+  @Get(":id/qr")
+  @ApiOperation({ summary: "Get QR code data URL for a table" })
+  getQRCode(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Param("id") id: string,
+  ) {
+    return this.tablesService.getQRCode(id, restaurantId)
+  }
+
   @Get()
   @ApiOperation({ summary: "List all tables for a branch" })
   @ApiQuery({ name: "branchId", required: true })

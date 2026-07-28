@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { apiFetch } from "@/lib/api"
 import { toast } from "sonner"
-import { Plus, Pencil, X, Users, Building2, Store } from "lucide-react"
+import { Plus, Pencil, X, Users, Building2, Store, Shield } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -563,14 +563,105 @@ function StaffTab({ branches }: { branches: Branch[] }) {
   )
 }
 
+// ─── Tab 4: Security ─────────────────────────────────────────────────────────
+
+function SecurityTab() {
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (newPassword !== confirmPassword) {
+      toast.error("New passwords do not match")
+      return
+    }
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters")
+      return
+    }
+    setSaving(true)
+    try {
+      await apiFetch("/auth/change-password", {
+        method: "PATCH",
+        body: JSON.stringify({ currentPassword, newPassword }),
+      })
+      toast.success("Password changed successfully")
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to change password")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Current Password <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="password"
+          required
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          className={inputCls}
+          autoComplete="current-password"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          New Password <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="password"
+          required
+          minLength={8}
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          className={inputCls}
+          autoComplete="new-password"
+        />
+        <p className="text-xs text-gray-400 mt-1">Minimum 8 characters</p>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Confirm New Password <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="password"
+          required
+          minLength={8}
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          className={inputCls}
+          autoComplete="new-password"
+        />
+      </div>
+      <button
+        type="submit"
+        disabled={saving}
+        className="mt-2 bg-orange-500 hover:bg-orange-600 text-white px-5 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
+      >
+        {saving ? "Saving…" : "Change Password"}
+      </button>
+    </form>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = "profile" | "branches" | "staff"
+type Tab = "profile" | "branches" | "staff" | "security"
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "profile", label: "Restaurant Profile", icon: Store },
   { id: "branches", label: "Branches", icon: Building2 },
   { id: "staff", label: "Staff", icon: Users },
+  { id: "security", label: "Security", icon: Shield },
 ]
 
 export default function SettingsPage() {
@@ -608,6 +699,7 @@ export default function SettingsPage() {
         {activeTab === "profile" && <RestaurantTab />}
         {activeTab === "branches" && <BranchesTab />}
         {activeTab === "staff" && <StaffTab branches={branches} />}
+        {activeTab === "security" && <SecurityTab />}
       </div>
     </div>
   )

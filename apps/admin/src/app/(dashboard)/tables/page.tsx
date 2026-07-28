@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Plus, Pencil, Trash2, X, Table as TableIcon } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Table as TableIcon, QrCode, Download, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
 import { getSocket, disconnectSocket } from "@/lib/socket";
@@ -193,6 +193,111 @@ function TableModal({ modal, selectedBranchId, onClose, onSuccess }: TableModalP
   );
 }
 
+interface QRModalProps {
+  tableId: string;
+  onClose: () => void;
+}
+
+function QRModal({ tableId, onClose }: QRModalProps) {
+  const [qrData, setQrData] = useState<{ qrDataUrl: string; tableNumber: string; url: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch<{ qrDataUrl: string; tableNumber: string; url: string }>(`/tables/${tableId}/qr`)
+      .then(setQrData)
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : "Failed to load QR code"))
+      .finally(() => setLoading(false));
+  }, [tableId]);
+
+  function handleDownload() {
+    if (!qrData) return;
+    const a = document.createElement("a");
+    a.href = qrData.qrDataUrl;
+    a.download = `table-${qrData.tableNumber}-qr.png`;
+    a.click();
+  }
+
+  function handlePrint() {
+    if (!qrData) return;
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    const doc = win.document;
+    const style = doc.createElement("style");
+    style.textContent = "body { font-family: sans-serif; text-align: center; padding: 40px; } h2 { font-size: 24px; margin-bottom: 16px; } img { max-width: 300px; }";
+
+    const h2 = doc.createElement("h2");
+    h2.textContent = `Table ${qrData.tableNumber}`;
+
+    const img = doc.createElement("img");
+    img.src = qrData.qrDataUrl;
+    img.alt = "QR Code";
+
+    doc.head.appendChild(style);
+    doc.body.appendChild(h2);
+    doc.body.appendChild(img);
+
+    win.onload = () => win.print();
+    // Trigger immediately if already loaded
+    if (doc.readyState === "complete") win.print();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white max-w-sm w-full mx-4 rounded-xl p-6 shadow-xl text-center"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">
+            {qrData ? `Table ${qrData.tableNumber}` : "QR Code"}
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        {loading && (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-8 h-8 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {qrData && (
+          <>
+            <img
+              src={qrData.qrDataUrl}
+              alt={`QR code for table ${qrData.tableNumber}`}
+              className="mx-auto rounded-lg mb-3"
+              style={{ width: 240, height: 240 }}
+            />
+            <p className="text-xs text-gray-400 mb-5 break-all">{qrData.url}</p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleDownload}
+                className="flex-1 flex items-center justify-center gap-2 border border-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 text-sm font-medium transition-colors"
+              >
+                <Download size={15} />
+                Download
+              </button>
+              <button
+                onClick={handlePrint}
+                className="flex-1 flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Printer size={15} />
+                Print
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function TablesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>("");
@@ -200,6 +305,7 @@ export default function TablesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>({ open: false, table: null });
+  const [qrTableId, setQrTableId] = useState<string | null>(null);
 
   const dragState = useRef<DragState | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -532,6 +638,13 @@ export default function TablesPage() {
                       </div>
                       <div className="flex gap-1 shrink-0">
                         <button
+                          onClick={() => setQrTableId(table.id)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                          title="Show QR code"
+                        >
+                          <QrCode size={14} />
+                        </button>
+                        <button
                           onClick={() => openEdit(table)}
                           className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                           title="Edit table"
@@ -572,6 +685,10 @@ export default function TablesPage() {
           onClose={closeModal}
           onSuccess={() => fetchTables(selectedBranchId)}
         />
+      )}
+
+      {qrTableId && (
+        <QRModal tableId={qrTableId} onClose={() => setQrTableId(null)} />
       )}
     </div>
   );

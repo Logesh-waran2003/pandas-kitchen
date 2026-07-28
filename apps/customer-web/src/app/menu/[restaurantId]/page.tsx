@@ -78,6 +78,8 @@ export default function MenuPage() {
   const [placing, setPlacing] = useState(false)
   const [orderType, setOrderType] = useState<"DINE_IN" | "DELIVERY">("DINE_IN")
   const [deliveryAddress, setDeliveryAddress] = useState("")
+  const [paxCount, setPaxCount] = useState(1)
+  const [expandedNoteItemKey, setExpandedNoteItemKey] = useState<string | null>(null)
 
   // AI chat state
   const [chatOpen, setChatOpen] = useState(false)
@@ -86,7 +88,7 @@ export default function MenuPage() {
   const [chatLoading, setChatLoading] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
-  const { items: cartItems, addItem, updateQty, clearCart, total } = useCartStore()
+  const { items: cartItems, addItem, updateQty, updateNote, clearCart, total } = useCartStore()
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
 
   // ── Load menu data ─────────────────────────────────────────────────────────
@@ -226,6 +228,7 @@ export default function MenuPage() {
             orderType,
             deliveryAddress: orderType === "DELIVERY" ? deliveryAddress.trim() : undefined,
             customerId: customerId ?? undefined,
+            paxCount,
             items: cartItems.map((i) => ({
               menuItemId: i.menuItemId,
               quantity: i.quantity,
@@ -500,7 +503,7 @@ export default function MenuPage() {
             </div>
 
             {/* Order type selector */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 mb-3">
               <button
                 onClick={() => setOrderType("DINE_IN")}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors ${
@@ -521,6 +524,28 @@ export default function MenuPage() {
               >
                 🚚 Delivery
               </button>
+            </div>
+
+            {/* Party size */}
+            <div className="flex items-center justify-between mb-3 px-1">
+              <span className="text-sm text-gray-600 font-medium">Party size</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPaxCount(n => Math.max(1, n - 1))}
+                  className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center"
+                  aria-label="Decrease party size"
+                >
+                  <Minus className="w-3 h-3 text-gray-600" />
+                </button>
+                <span className="text-sm font-semibold w-5 text-center">{paxCount}</span>
+                <button
+                  onClick={() => setPaxCount(n => Math.min(20, n + 1))}
+                  className="w-7 h-7 bg-orange-500 rounded-full flex items-center justify-center"
+                  aria-label="Increase party size"
+                >
+                  <Plus className="w-3 h-3 text-white" />
+                </button>
+              </div>
             </div>
 
             {/* Dine-in table info */}
@@ -544,36 +569,62 @@ export default function MenuPage() {
               {cartItems.length === 0 && (
                 <p className="text-center text-gray-400 py-6">Cart is empty</p>
               )}
-              {cartItems.map((item, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <div className="flex-1 mr-3">
-                    <p className="text-sm font-medium text-gray-900">{item.name}</p>
-                    {item.variantName && (
-                      <p className="text-xs text-gray-400">{item.variantName}</p>
+              {cartItems.map((item, i) => {
+                const itemKey = `${item.menuItemId}-${item.variantId ?? ""}-${i}`
+                return (
+                  <div key={i} className="flex flex-col gap-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 mr-3">
+                        <p className="text-sm font-medium text-gray-900">{item.name}</p>
+                        {item.variantName && (
+                          <p className="text-xs text-gray-400">{item.variantName}</p>
+                        )}
+                        {item.notes && expandedNoteItemKey !== itemKey && (
+                          <p className="text-xs text-gray-400 italic">{item.notes}</p>
+                        )}
+                        <p className="text-sm text-orange-600 font-semibold">
+                          ₹{(item.price * item.quantity).toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateQty(item.menuItemId, item.variantId, -1)}
+                          className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center"
+                          aria-label="Decrease"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="w-5 text-center text-sm font-semibold">{item.quantity}</span>
+                        <button
+                          onClick={() => updateQty(item.menuItemId, item.variantId, 1)}
+                          className="w-7 h-7 bg-orange-500 rounded-full flex items-center justify-center"
+                          aria-label="Increase"
+                        >
+                          <Plus className="w-3 h-3 text-white" />
+                        </button>
+                      </div>
+                    </div>
+                    {expandedNoteItemKey === itemKey ? (
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Add a note for this item…"
+                        value={item.notes ?? ""}
+                        onChange={e => updateNote(item.menuItemId, item.variantId, e.target.value)}
+                        onBlur={() => setExpandedNoteItemKey(null)}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => setExpandedNoteItemKey(itemKey)}
+                        className="text-xs text-gray-400 hover:text-orange-500 text-left"
+                      >
+                        {item.notes ? "Edit note" : "+ Add note"}
+                      </button>
                     )}
-                    <p className="text-sm text-orange-600 font-semibold">
-                      ₹{(item.price * item.quantity).toFixed(2)}
-                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => updateQty(item.menuItemId, item.variantId, -1)}
-                      className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center"
-                      aria-label="Decrease"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="w-5 text-center text-sm font-semibold">{item.quantity}</span>
-                    <button
-                      onClick={() => updateQty(item.menuItemId, item.variantId, 1)}
-                      className="w-7 h-7 bg-orange-500 rounded-full flex items-center justify-center"
-                      aria-label="Increase"
-                    >
-                      <Plus className="w-3 h-3 text-white" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             <div className="border-t border-gray-100 pt-4">
               <div className="flex justify-between mb-4">

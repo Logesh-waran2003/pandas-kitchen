@@ -5,6 +5,8 @@ import { apiFetch } from "@/lib/api"
 import { formatCurrency, formatDate } from "@/lib/utils"
 import { toast } from "sonner"
 import { Plus, X, ChevronDown, Eye, ShoppingBag, ArrowRightLeft, Receipt, GitMerge } from "lucide-react"
+import { getSocket } from "@/lib/socket"
+import { useAuthStore } from "@/stores/auth.store"
 
 type OrderStatus =
   | "PENDING"
@@ -28,6 +30,7 @@ interface Order {
   status: OrderStatus
   orderType?: string
   totalAmount: number
+  paxCount?: number
   notes?: string
   items: OrderItem[]
   createdAt: string
@@ -91,6 +94,11 @@ function ViewOrderModal({ order, onClose }: { order: Order; onClose: () => void 
           <span>Table: <strong>{order.tableNumber ?? "—"}</strong></span>
           <span>Branch: <strong>{order.branchName ?? "—"}</strong></span>
           <span>Time: <strong>{formatDate(order.createdAt)}</strong></span>
+          {order.paxCount && order.paxCount > 1 && (
+            <span className="bg-blue-50 text-blue-700 text-xs font-medium px-2 py-0.5 rounded-full">
+              {order.paxCount} covers
+            </span>
+          )}
           <StatusBadge status={order.status} />
         </div>
         {order.notes && <p className="text-sm text-gray-500 italic">"{order.notes}"</p>}
@@ -106,7 +114,10 @@ function ViewOrderModal({ order, onClose }: { order: Order; onClose: () => void 
           <tbody>
             {order.items.map((item) => (
               <tr key={item.id} className="border-b border-gray-100">
-                <td className="py-2">{item.name}{item.notes && <span className="text-gray-400 ml-1 text-xs">({item.notes})</span>}</td>
+                <td className="py-2">
+                  <span>{item.name}</span>
+                  {item.notes && <span className="text-gray-400 ml-1 text-xs">({item.notes})</span>}
+                </td>
                 <td className="text-right py-2">{item.quantity}</td>
                 <td className="text-right py-2">{formatCurrency(item.unitPrice)}</td>
                 <td className="text-right py-2 font-medium">{formatCurrency(item.totalPrice)}</td>
@@ -455,6 +466,7 @@ export default function OrdersPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [transferOrder, setTransferOrder] = useState<Order | null>(null)
   const [showMerge, setShowMerge] = useState(false)
+  const accessToken = useAuthStore((s) => s.accessToken)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -471,6 +483,51 @@ export default function OrdersPage() {
   }, [activeTab])
 
   useEffect(() => { load() }, [load])
+
+  // Socket.io — live order updates
+  useEffect(() => {
+    if (!accessToken) return
+
+    const socket = getSocket(accessToken)
+
+    function onOrderCreated(newOrder: Order) {
+      // Only prepend if current tab would show this order
+      setOrders((prev) => {
+        if (activeTab !== "ALL" && newOrder.status !== activeTab) return prev
+        // Avoid duplicates
+        if (prev.some((o) => o.id === newOrder.id)) return prev
+        toast.info(`New order: #${newOrder.orderNumber ?? newOrder.id.slice(-6).toUpperCase()}`)
+        return [newOrder, ...prev]
+      })
+    }
+
+    function onOrderStatusChanged(data: { id: string; status: OrderStatus }) {
+      setOrders((prev) =>
+        prev.map((o) => {
+          if (o.id !== data.id) return o
+          // Remove from list if current tab filter no longer matches
+          if (activeTab !== "ALL" && data.status !== activeTab) return { ...o, status: data.status }
+          return { ...o, status: data.status }
+        }),
+      )
+    }
+
+    function onOrderCancelled(data: { id: string }) {
+      setOrders((prev) =>
+        prev.map((o) => (o.id === data.id ? { ...o, status: "CANCELLED" as OrderStatus } : o)),
+      )
+    }
+
+    socket.on("order.created", onOrderCreated)
+    socket.on("order.status_changed", onOrderStatusChanged)
+    socket.on("order.cancelled", onOrderCancelled)
+
+    return () => {
+      socket.off("order.created", onOrderCreated)
+      socket.off("order.status_changed", onOrderStatusChanged)
+      socket.off("order.cancelled", onOrderCancelled)
+    }
+  }, [accessToken, activeTab])
 
   async function updateStatus(order: Order, status: OrderStatus) {
     setUpdatingId(order.id)
@@ -573,7 +630,14 @@ export default function OrdersPage() {
                     <td className="px-4 py-3 text-gray-600">
                       {order.tableNumber ? `T${order.tableNumber}` : "—"}
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{order.items.length} items</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {order.items.length} items
+                      {order.paxCount && order.paxCount > 1 && (
+                        <span className="ml-1.5 text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full font-medium">
+                          {order.paxCount} cvr
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right font-medium">{formatCurrency(order.totalAmount)}</td>
                     <td className="px-4 py-3"><StatusBadge status={order.status} /></td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(order.createdAt)}</td>

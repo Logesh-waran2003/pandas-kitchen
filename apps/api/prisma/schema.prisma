@@ -245,6 +245,7 @@ model Order {
   gstRate       Decimal     @default(5) @db.Decimal(5, 2)
   gstAmount     Decimal     @default(0) @db.Decimal(10, 2)
   total         Decimal     @default(0) @db.Decimal(10, 2)
+  paxCount        Int         @default(1)
   paymentStatus   String      @default("UNPAID")
   notes           String?
   deliveryAddress String?

@@ -231,6 +231,7 @@ export class OrdersService {
             customerId: dto.customerId ?? null,
             orderNumber,
             orderType: dto.orderType ?? OrderType.DINE_IN,
+            paxCount: dto.paxCount ?? 1,
             notes: dto.notes,
             deliveryAddress: dto.deliveryAddress ?? null,
             subtotal,
@@ -463,6 +464,7 @@ export class OrdersService {
       gstAmount: Number(order.gstAmount),
       total: Number(order.total),
       totalAmount: Number(order.total),
+      paxCount: order.paxCount ?? 1,
       tableNumber: order.table?.tableNumber ?? null,
       branchName: order.branch?.name ?? null,
       items: order.items?.map((i: any) => ({

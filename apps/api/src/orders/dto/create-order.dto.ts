@@ -96,6 +96,12 @@ export class CreateOrderDto {
   @IsString()
   deliveryAddress?: string
 
+  @ApiPropertyOptional({ example: 2 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  paxCount?: number
+
   @ApiProperty({ type: [OrderItemInputDto] })
   @IsArray()
   @ArrayMinSize(1)

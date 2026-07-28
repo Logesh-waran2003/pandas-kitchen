@@ -192,6 +192,7 @@ function ItemModal({
     editing?.preparationTime?.toString() ?? ""
   )
   const [isAvailable, setIsAvailable] = useState(editing?.isAvailable ?? true)
+  const [imageUrl, setImageUrl] = useState(editing?.imageUrl ?? "")
   const [saving, setSaving] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -205,6 +206,7 @@ function ItemModal({
       isVeg,
       preparationTime: preparationTime ? parseInt(preparationTime) : undefined,
       isAvailable,
+      imageUrl: imageUrl || undefined,
     }
     try {
       if (editing) {
@@ -313,6 +315,24 @@ function ItemModal({
             />
             Available
           </label>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
+          <input
+            type="url"
+            value={imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
+            placeholder="https://…"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+          {imageUrl && (
+            <img
+              src={imageUrl}
+              alt="Preview"
+              className="mt-2 w-10 h-10 object-cover rounded border border-gray-200"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+            />
+          )}
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button

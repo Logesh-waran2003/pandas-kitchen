@@ -1,0 +1,35 @@
+P5 features complete — 2026-07-29
+
+## Feature 1: QR Code Generation for Tables
+- Installed qrcode + @types/qrcode in apps/api
+- Added getQRCode() to TablesService — generates data URL via qrcode lib, uses CUSTOMER_WEB_URL env var
+- Added GET /tables/:id/qr to TablesController (JWT-guarded)
+- Added CUSTOMER_WEB_URL=http://192.168.0.109:3003 to apps/api/.env
+- Admin tables page: QrCode button on each card → QRModal with image, download, and print (DOM-safe, no document.write)
+
+## Feature 2: Settings — Security tab (Password Change)
+- Added changePassword() to AuthService (bcrypt compare + hash, min-length guard)
+- Added PATCH /auth/change-password to AuthController (JWT-guarded, uses @CurrentUser)
+- Added SecurityTab component to settings/page.tsx (current/new/confirm fields, client-side confirm check, success toast)
+- Added Shield tab to settings TABS array
+
+## Feature 3: ThrottlerGuard activated (BUG-12)
+- Added APP_GUARD provider with ThrottlerGuard to AppModule providers array
+- Imported APP_GUARD from @nestjs/core, ThrottlerGuard from @nestjs/throttler
+
+## Feature 4: Kitchen page — KOT auto-load (already wired)
+- Verified kot.created → loadKots() already implemented in kitchen/page.tsx
+- Verified kot.status_changed → in-place state update already implemented
+- No changes needed; socket handlers were present from prior phase
+
+## Feature 5: Orders page — live socket updates
+- Added useAuthStore import to get accessToken
+- Added getSocket import from @/lib/socket
+- Added useEffect with socket listeners:
+  - order.created → prepend to list with toast notification (dedup guard)
+  - order.status_changed → in-place status badge update
+  - order.cancelled → in-place CANCELLED status update
+
+## Build status
+- apps/api: ✓ nest build clean
+- apps/admin: ✓ next build clean (17 pages)

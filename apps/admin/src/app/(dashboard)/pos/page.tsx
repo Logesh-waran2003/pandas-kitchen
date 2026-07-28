@@ -20,6 +20,7 @@ interface CartItem {
   quantity: number
   variantId?: string
   variantName?: string
+  notes: string
 }
 
 type OrderType = "DINE_IN" | "TAKEAWAY" | "DELIVERY"
@@ -230,6 +231,8 @@ export default function POSPage() {
 
   const [variantModal, setVariantModal] = useState<{ item: MenuItem; variants: Variant[] } | null>(null)
   const [showSplitBill, setShowSplitBill] = useState(false)
+  const [paxCount, setPaxCount] = useState(1)
+  const [expandedNoteIdx, setExpandedNoteIdx] = useState<number | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -287,8 +290,12 @@ export default function POSPage() {
       const key = `${item.id}-${variantId ?? ""}`
       const existing = prev.find(c => `${c.menuItemId}-${c.variantId ?? ""}` === key)
       if (existing) return prev.map(c => `${c.menuItemId}-${c.variantId ?? ""}` === key ? { ...c, quantity: c.quantity + 1 } : c)
-      return [...prev, { menuItemId: item.id, name: item.name, price, quantity: 1, variantId, variantName }]
+      return [...prev, { menuItemId: item.id, name: item.name, price, quantity: 1, variantId, variantName, notes: "" }]
     })
+  }
+
+  function updateNote(idx: number, notes: string) {
+    setCart(prev => prev.map((c, i) => i === idx ? { ...c, notes } : c))
   }
 
   function updateQty(idx: number, delta: number) {
@@ -325,8 +332,9 @@ export default function POSPage() {
           discountType,
           serviceChargePercent: serviceChargePct,
           gstRate,
+          paxCount,
           notes: "",
-          items: cart.map(c => ({ menuItemId: c.menuItemId, quantity: c.quantity, variantId: c.variantId, notes: "" })),
+          items: cart.map(c => ({ menuItemId: c.menuItemId, quantity: c.quantity, variantId: c.variantId, notes: c.notes || undefined })),
         }),
       })
 
@@ -347,6 +355,8 @@ export default function POSPage() {
       setDiscount(0)
       setServiceChargePct(0)
       setGstRate(5)
+      setPaxCount(1)
+      setExpandedNoteIdx(null)
       setCashReceived(0)
       setPaymentRef("")
     } catch (e) {
@@ -454,6 +464,23 @@ export default function POSPage() {
               {tables.map(t => <option key={t.id} value={t.id}>{t.tableNumber}</option>)}
             </select>
           )}
+          {/* Covers / Pax count */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-600 font-medium">Covers</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPaxCount(n => Math.max(1, n - 1))}
+                className="w-6 h-6 rounded border border-gray-200 flex items-center justify-center hover:bg-gray-100"
+              ><Minus className="w-3 h-3" /></button>
+              <span className="text-sm font-semibold w-5 text-center">{paxCount}</span>
+              <button
+                type="button"
+                onClick={() => setPaxCount(n => Math.min(20, n + 1))}
+                className="w-6 h-6 rounded border border-gray-200 flex items-center justify-center hover:bg-gray-100"
+              ><Plus className="w-3 h-3" /></button>
+            </div>
+          </div>
           <div className="relative">
             <input
               type="text"
@@ -487,9 +514,32 @@ export default function POSPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-gray-800 truncate">{item.name}</p>
                       {item.variantName && <p className="text-xs text-gray-500">{item.variantName}</p>}
+                      {item.notes && expandedNoteIdx !== idx && (
+                        <p className="text-xs text-gray-400 italic truncate">{item.notes}</p>
+                      )}
                     </div>
-                    <button onClick={() => removeItem(idx)} className="text-gray-300 hover:text-red-400 shrink-0"><X className="w-3 h-3" /></button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => setExpandedNoteIdx(expandedNoteIdx === idx ? null : idx)}
+                        className={`text-gray-300 hover:text-blue-400 ${item.notes ? "text-blue-400" : ""}`}
+                        title="Add note"
+                      >
+                        <span className="text-xs">✎</span>
+                      </button>
+                      <button onClick={() => removeItem(idx)} className="text-gray-300 hover:text-red-400"><X className="w-3 h-3" /></button>
+                    </div>
                   </div>
+                  {expandedNoteIdx === idx && (
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="Note for this item…"
+                      value={item.notes}
+                      onChange={e => updateNote(idx, e.target.value)}
+                      onBlur={() => setExpandedNoteIdx(null)}
+                      className="mt-1.5 w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                    />
+                  )}
                   <div className="flex items-center justify-between mt-1.5">
                     <div className="flex items-center gap-1">
                       <button onClick={() => updateQty(idx, -1)} className="w-5 h-5 rounded border border-gray-200 flex items-center justify-center hover:bg-gray-100"><Minus className="w-2.5 h-2.5" /></button>

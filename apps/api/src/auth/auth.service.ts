@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  NotFoundException,
 } from "@nestjs/common"
 import { JwtService } from "@nestjs/jwt"
 import * as bcrypt from "bcryptjs"
@@ -139,6 +140,10 @@ export class AuthService {
       throw new BadRequestException(parsed.error.flatten())
     }
     const { restaurantId, phone, firstName, lastName } = parsed.data
+
+    // Guard: ensure restaurant exists before any Customer upsert (prevents P2003 FK error)
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } })
+    if (!restaurant) throw new NotFoundException("Restaurant not found")
 
     let customer = await this.prisma.customer.findUnique({
       where: { restaurantId_phone: { restaurantId, phone } },

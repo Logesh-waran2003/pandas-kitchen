@@ -100,6 +100,8 @@ export default function POSPage() {
   const [serviceChargePct, setServiceChargePct] = useState(0)
   const [gstRate, setGstRate] = useState(5)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH")
+  const [cashReceived, setCashReceived] = useState(0)
+  const [paymentRef, setPaymentRef] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
   const [variantModal, setVariantModal] = useState<{ item: MenuItem; variants: Variant[] } | null>(null)
@@ -121,6 +123,8 @@ export default function POSPage() {
       setItemLoading(false)
     })
   }, [])
+
+  useEffect(() => { setCashReceived(0); setPaymentRef("") }, [paymentMethod])
 
   useEffect(() => {
     if (!selectedBranchId || orderType !== "DINE_IN") { setTables([]); setSelectedTableId(""); return }
@@ -204,7 +208,7 @@ export default function POSPage() {
       if (payNow) {
         await apiFetch("/payments", {
           method: "POST",
-          body: JSON.stringify({ orderId: order.id, method: paymentMethod, amount: total }),
+          body: JSON.stringify({ orderId: order.id, method: paymentMethod, amount: total, reference: paymentRef || undefined }),
         })
         toast.success(`Order #${order.orderNumber} placed & paid`)
       } else {
@@ -218,6 +222,8 @@ export default function POSPage() {
       setDiscount(0)
       setServiceChargePct(0)
       setGstRate(5)
+      setCashReceived(0)
+      setPaymentRef("")
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to place order")
     } finally {
@@ -413,6 +419,48 @@ export default function POSPage() {
               </button>
             ))}
           </div>
+          {/* Payment mode details */}
+          {paymentMethod === "CASH" && (
+            <div className="space-y-1">
+              <input
+                type="number"
+                min={0}
+                value={cashReceived || ""}
+                onChange={e => setCashReceived(Number(e.target.value))}
+                placeholder="Amount received"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
+              />
+              {cashReceived > 0 && cashReceived >= total && (
+                <p className="text-xs text-green-600 font-medium px-1">
+                  Change: {formatCurrency(cashReceived - total)}
+                </p>
+              )}
+              {cashReceived > 0 && cashReceived < total && (
+                <p className="text-xs text-red-500 px-1">
+                  Short by {formatCurrency(total - cashReceived)}
+                </p>
+              )}
+            </div>
+          )}
+          {paymentMethod === "UPI" && (
+            <input
+              type="text"
+              value={paymentRef}
+              onChange={e => setPaymentRef(e.target.value)}
+              placeholder="UPI reference (optional)"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
+            />
+          )}
+          {paymentMethod === "CARD" && (
+            <input
+              type="text"
+              value={paymentRef}
+              onChange={e => setPaymentRef(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              placeholder="Card last 4 digits (optional)"
+              inputMode="numeric"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
+            />
+          )}
           <button
             onClick={() => placeOrder(true)}
             disabled={submitting || cart.length === 0}

@@ -28,10 +28,17 @@ export class OrdersController {
   @Post("public")
   @ApiOperation({ summary: "Public: place an order from QR table (no auth required)" })
   createPublicOrder(@Body() dto: CreateOrderDto) {
-    // restaurantId is derived from branchId inside createOrder — pass empty string;
-    // service fetches branch to validate, but also needs restaurantId match.
-    // Use a dedicated service method that resolves restaurantId from branchId.
     return this.ordersService.createPublicOrder(dto)
+  }
+
+  @Public()
+  @Patch(":id/cancel")
+  @ApiOperation({ summary: "Customer: cancel own PENDING order within 2 minutes" })
+  cancelPublicOrder(
+    @Param("id") id: string,
+    @Body("customerId") customerId: string,
+  ) {
+    return this.ordersService.cancelPublicOrder(id, customerId)
   }
 
   @Get()
@@ -46,6 +53,15 @@ export class OrdersController {
     @Query("date") date?: string,
   ) {
     return this.ordersService.listOrders(restaurantId, branchId, status, date)
+  }
+
+  @Get(":id/track")
+  @ApiOperation({ summary: "Track a single order by customer JWT" })
+  trackOrder(
+    @CurrentUser("sub") customerId: string,
+    @Param("id") id: string,
+  ) {
+    return this.ordersService.findOneForTracking(id, customerId)
   }
 
   @Get(":id")

@@ -19,6 +19,23 @@ export class JwtStrategy extends PassportStrategy(Strategy, "jwt") {
   }
 
   async validate(payload: JwtPayload) {
+    // CUSTOMER tokens: sub = customer.id, no User record exists
+    if (payload.role === "CUSTOMER") {
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, name: true, restaurantId: true, isActive: true },
+      })
+      if (!customer || !customer.isActive) return null
+      return {
+        sub: customer.id,
+        id: customer.id,
+        name: customer.name,
+        role: "CUSTOMER" as const,
+        restaurantId: customer.restaurantId,
+      }
+    }
+
+    // Staff / owner tokens: sub = user.id
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {

@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from "@nestjs/swagger"
 import { TableStatus } from "@prisma/client"
-import { IsString, IsOptional, IsInt, Min, IsEnum } from "class-validator"
+import { IsString, IsOptional, IsInt, Min, IsEnum, IsIn } from "class-validator"
 
 export class UpdateTableDto {
   @ApiPropertyOptional()
@@ -18,4 +18,32 @@ export class UpdateTableDto {
   @IsOptional()
   @IsEnum(TableStatus)
   status?: TableStatus
+
+  // Floor plan layout fields
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  posX?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  posY?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(20)
+  width?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(20)
+  height?: number
+
+  @ApiPropertyOptional({ enum: ["rectangle", "circle"] })
+  @IsOptional()
+  @IsIn(["rectangle", "circle"])
+  shape?: string
 }

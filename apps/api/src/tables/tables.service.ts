@@ -52,6 +52,11 @@ export class TablesService {
         ...(dto.tableNumber !== undefined && { tableNumber: dto.tableNumber }),
         ...(dto.capacity !== undefined && { capacity: dto.capacity }),
         ...(dto.status !== undefined && { status: dto.status }),
+        ...(dto.posX !== undefined && { posX: dto.posX }),
+        ...(dto.posY !== undefined && { posY: dto.posY }),
+        ...(dto.width !== undefined && { width: dto.width }),
+        ...(dto.height !== undefined && { height: dto.height }),
+        ...(dto.shape !== undefined && { shape: dto.shape }),
       },
     })
   }

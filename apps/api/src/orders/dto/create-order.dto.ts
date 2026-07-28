@@ -91,6 +91,11 @@ export class CreateOrderDto {
   @IsString()
   notes?: string
 
+  @ApiPropertyOptional({ example: "123 Main St, City" })
+  @IsOptional()
+  @IsString()
+  deliveryAddress?: string
+
   @ApiProperty({ type: [OrderItemInputDto] })
   @IsArray()
   @ArrayMinSize(1)

@@ -189,6 +189,12 @@ model Table {
   status       TableStatus @default(AVAILABLE)
   qrCode       String?
   isActive     Boolean     @default(true)
+  // floor plan layout fields
+  posX         Int         @default(50)
+  posY         Int         @default(50)
+  width        Int         @default(80)
+  height       Int         @default(80)
+  shape        String      @default("rectangle")
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   restaurant   Restaurant  @relation(fields: [restaurantId], references: [id])
@@ -235,9 +241,10 @@ model Order {
   gstRate       Decimal     @default(5) @db.Decimal(5, 2)
   gstAmount     Decimal     @default(0) @db.Decimal(10, 2)
   total         Decimal     @default(0) @db.Decimal(10, 2)
-  paymentStatus String      @default("UNPAID")
-  notes         String?
-  createdById   String?
+  paymentStatus   String      @default("UNPAID")
+  notes           String?
+  deliveryAddress String?
+  createdById     String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   restaurant    Restaurant  @relation(fields: [restaurantId], references: [id])

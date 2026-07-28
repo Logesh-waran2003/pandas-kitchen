@@ -4,7 +4,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/api"
 import { useCartStore } from "@/stores/cart.store"
 import { toast } from "sonner"
-import { ShoppingCart, Plus, Minus, Search, X, Leaf, Phone, User } from "lucide-react"
+import { ShoppingCart, Plus, Minus, Search, X, Leaf, Phone, User, MessageSquare, Send } from "lucide-react"
 import { connectSocket, disconnectSocket } from "@/lib/socket"
 
 interface Category {
@@ -33,6 +33,11 @@ interface CustomerAuth {
   token: string
   customerId: string
   firstName: string
+}
+
+interface ChatMessage {
+  role: "user" | "assistant"
+  content: string
 }
 
 function getCustomerAuth(): CustomerAuth | null {
@@ -71,6 +76,15 @@ export default function MenuPage() {
 
   // Order placing state
   const [placing, setPlacing] = useState(false)
+  const [orderType, setOrderType] = useState<"DINE_IN" | "DELIVERY">("DINE_IN")
+  const [deliveryAddress, setDeliveryAddress] = useState("")
+
+  // AI chat state
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState("")
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatEndRef = useRef<HTMLDivElement>(null)
 
   const { items: cartItems, addItem, updateQty, clearCart, total } = useCartStore()
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
@@ -160,6 +174,9 @@ export default function MenuPage() {
   function handlePlaceOrderClick() {
     if (!branchId) { toast.error("Table info missing"); return }
     if (cartItems.length === 0) { toast.error("Cart is empty"); return }
+    if (orderType === "DELIVERY" && !deliveryAddress.trim()) {
+      toast.error("Please enter a delivery address"); return
+    }
     const auth = getCustomerAuth()
     if (!auth) {
       setShowLogin(true)
@@ -202,7 +219,8 @@ export default function MenuPage() {
           body: JSON.stringify({
             branchId,
             tableId: tableId ?? undefined,
-            orderType: "DINE_IN",
+            orderType,
+            deliveryAddress: orderType === "DELIVERY" ? deliveryAddress.trim() : undefined,
             customerId: customerId ?? undefined,
             items: cartItems.map((i) => ({
               menuItemId: i.menuItemId,
@@ -226,6 +244,57 @@ export default function MenuPage() {
       setPlacing(false)
     }
   }
+
+  async function sendChatMessage(e: React.FormEvent) {
+    e.preventDefault()
+    const text = chatInput.trim()
+    if (!text || chatLoading) return
+
+    const userMsg: ChatMessage = { role: "user", content: text }
+    setChatMessages((prev) => [...prev, userMsg])
+    setChatInput("")
+    setChatLoading(true)
+
+    const auth = getCustomerAuth()
+
+    try {
+      if (!auth) {
+        setChatMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "Please login to chat with our AI assistant." },
+        ])
+        return
+      }
+
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1"
+      const res = await fetch(`${API_BASE}/ai/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({
+          restaurantId,
+          messages: [...chatMessages, userMsg].map((m) => ({ role: m.role, content: m.content })),
+        }),
+      })
+
+      if (!res.ok) throw new Error("Chat failed")
+      const data = await res.json()
+      setChatMessages((prev) => [...prev, { role: "assistant", content: data.message }])
+    } catch {
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Sorry, I couldn't connect right now. Please try again!" },
+      ])
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [chatMessages])
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
@@ -425,6 +494,48 @@ export default function MenuPage() {
                 <X className="w-5 h-5 text-gray-400" />
               </button>
             </div>
+
+            {/* Order type selector */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setOrderType("DINE_IN")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  orderType === "DINE_IN"
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-gray-600 border-gray-200"
+                }`}
+              >
+                🪑 Dine In
+              </button>
+              <button
+                onClick={() => setOrderType("DELIVERY")}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  orderType === "DELIVERY"
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-gray-600 border-gray-200"
+                }`}
+              >
+                🚚 Delivery
+              </button>
+            </div>
+
+            {/* Dine-in table info */}
+            {orderType === "DINE_IN" && tableId && (
+              <p className="text-xs text-gray-500 mb-3 text-center">
+                Ordering for <span className="font-semibold text-gray-700">Table {tableId}</span>
+              </p>
+            )}
+
+            {/* Delivery address */}
+            {orderType === "DELIVERY" && (
+              <textarea
+                rows={2}
+                value={deliveryAddress}
+                onChange={(e) => setDeliveryAddress(e.target.value)}
+                placeholder="Enter your delivery address…"
+                className="w-full mb-3 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+              />
+            )}
             <div className="overflow-y-auto flex-1 space-y-3 mb-4">
               {cartItems.length === 0 && (
                 <p className="text-center text-gray-400 py-6">Cart is empty</p>
@@ -530,6 +641,97 @@ export default function MenuPage() {
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 )}
                 Continue &amp; Place Order
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Floating AI chat button */}
+      {!chatOpen && (
+        <button
+          onClick={() => setChatOpen(true)}
+          className="fixed bottom-6 right-4 z-[45] w-14 h-14 bg-orange-500 hover:bg-orange-600 text-white rounded-full shadow-lg flex items-center justify-center transition-colors"
+          aria-label="Chat with AI assistant"
+        >
+          <MessageSquare className="w-6 h-6" />
+        </button>
+      )}
+
+      {/* AI Chat bottom sheet */}
+      {chatOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[55] flex items-end" onClick={() => setChatOpen(false)}>
+          <div
+            className="bg-white rounded-t-2xl w-full flex flex-col"
+            style={{ maxHeight: "75vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
+                  <MessageSquare className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">Menu Assistant</p>
+                  <p className="text-xs text-gray-400">Ask me about the menu</p>
+                </div>
+              </div>
+              <button onClick={() => setChatOpen(false)} aria-label="Close chat">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[200px]">
+              {chatMessages.length === 0 && (
+                <div className="text-center py-6">
+                  <p className="text-2xl mb-2">🤖</p>
+                  <p className="text-sm text-gray-500">Hi! I can help you choose from our menu.</p>
+                  <p className="text-xs text-gray-400 mt-1">Ask me for recommendations!</p>
+                </div>
+              )}
+              {chatMessages.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                      msg.role === "user"
+                        ? "bg-orange-500 text-white rounded-br-sm"
+                        : "bg-gray-100 text-gray-800 rounded-bl-sm"
+                    }`}
+                  >
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1">
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <form onSubmit={sendChatMessage} className="border-t border-gray-100 px-4 py-3 flex gap-2">
+              <input
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder={getCustomerAuth() ? "Ask about our menu…" : "Login to chat with AI assistant"}
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                disabled={!getCustomerAuth()}
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || chatLoading || !getCustomerAuth()}
+                className="w-9 h-9 bg-orange-500 hover:bg-orange-600 text-white rounded-xl flex items-center justify-center transition-colors disabled:opacity-40 shrink-0"
+                aria-label="Send message"
+              >
+                <Send className="w-4 h-4" />
               </button>
             </form>
           </div>

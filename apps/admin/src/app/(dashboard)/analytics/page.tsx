@@ -21,6 +21,15 @@ interface Summary {
 interface RevenuePoint { date: string; revenue: number }
 interface PopularItem { name: string; totalQuantity: number; totalRevenue: number }
 interface StatusCount { status: string; count: number }
+interface PnL {
+  date: string
+  revenue: number
+  tax: number
+  discount: number
+  netRevenue: number
+  orderCount: number
+  byMode: Record<string, number>
+}
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "#f59e0b",
@@ -80,6 +89,11 @@ export default function AnalyticsPage() {
   const [popError, setPopError] = useState<string | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
 
+  const [pnlDate, setPnlDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [pnl, setPnl] = useState<PnL | null>(null)
+  const [pnlLoading, setPnlLoading] = useState(false)
+  const [pnlError, setPnlError] = useState<string | null>(null)
+
   async function loadSummary() {
     setSumLoading(true); setSumError(null)
     try { setSummary(await apiFetch<Summary>("/analytics/summary")) }
@@ -108,12 +122,22 @@ export default function AnalyticsPage() {
     finally { setStatusLoading(false) }
   }
 
+  async function loadPnL(date: string) {
+    setPnlLoading(true); setPnlError(null)
+    try { setPnl(await apiFetch<PnL>(`/analytics/daily-pnl?date=${date}`)) }
+    catch (e) { setPnlError(e instanceof Error ? e.message : "Failed") }
+    finally { setPnlLoading(false) }
+  }
+
   useEffect(() => {
     loadSummary()
     loadRevenue()
     loadPopular()
     loadStatus()
+    loadPnL(pnlDate)
   }, [])
+
+  useEffect(() => { loadPnL(pnlDate) }, [pnlDate])
 
   const stats = summary
     ? [
@@ -144,6 +168,70 @@ export default function AnalyticsPage() {
           {stats.map((s) => <StatCard key={s.label} {...s} />)}
         </div>
       )}
+
+      {/* Daily P&L Widget */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-gray-700">Daily P&amp;L</h2>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={pnlDate}
+              onChange={(e) => setPnlDate(e.target.value)}
+              className="border border-gray-200 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+            <button
+              onClick={() => loadPnL(pnlDate)}
+              className="text-xs px-3 py-1.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+        {pnlError ? (
+          <ErrorCard message={pnlError} onRetry={() => loadPnL(pnlDate)} />
+        ) : pnlLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-pulse">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="bg-gray-100 rounded-xl h-20" />
+            ))}
+          </div>
+        ) : pnl ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-orange-50 rounded-xl p-4">
+                <p className="text-xs text-gray-500 mb-1">Total Revenue</p>
+                <p className="text-xl font-bold text-orange-600">{formatCurrency(pnl.revenue)}</p>
+              </div>
+              <div className="bg-green-50 rounded-xl p-4">
+                <p className="text-xs text-gray-500 mb-1">Net Revenue (ex-tax)</p>
+                <p className="text-xl font-bold text-green-600">{formatCurrency(pnl.netRevenue)}</p>
+              </div>
+              <div className="bg-blue-50 rounded-xl p-4">
+                <p className="text-xs text-gray-500 mb-1">Orders</p>
+                <p className="text-xl font-bold text-blue-600">{pnl.orderCount}</p>
+              </div>
+              <div className="bg-red-50 rounded-xl p-4">
+                <p className="text-xs text-gray-500 mb-1">Discount Given</p>
+                <p className="text-xl font-bold text-red-500">{formatCurrency(pnl.discount)}</p>
+              </div>
+            </div>
+            {Object.keys(pnl.byMode).length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Breakdown</p>
+                <div className="space-y-1.5">
+                  {Object.entries(pnl.byMode).map(([mode, amount]) => (
+                    <div key={mode} className="flex justify-between text-sm">
+                      <span className="text-gray-600">{mode}</span>
+                      <span className="font-semibold text-gray-800">{formatCurrency(amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
 
       {/* Daily Revenue Area Chart */}
       {revError ? (

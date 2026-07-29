@@ -27,6 +27,7 @@ interface MenuItem {
   isAvailable: boolean
   imageUrl?: string
   categoryId: string
+  allergens?: string[]
 }
 
 interface CustomerAuth {
@@ -400,6 +401,11 @@ export default function MenuPage() {
                   <p className="text-sm font-semibold text-gray-900 leading-tight">{item.name}</p>
                 </div>
                 <p className="text-sm font-bold text-orange-600 mb-2">₹{item.price.toFixed(2)}</p>
+                {item.allergens && item.allergens.length > 0 && (
+                  <p className="text-xs text-red-600 bg-red-50 rounded px-1.5 py-0.5 mb-2 leading-snug">
+                    Contains: {item.allergens.join(", ")}
+                  </p>
+                )}
                 {inCart ? (
                   <div className="flex items-center justify-between">
                     <button

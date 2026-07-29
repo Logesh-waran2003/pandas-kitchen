@@ -1,180 +1,204 @@
-# Pandas Kitchen — Complete Product Audit Report
+# Pandas Kitchen — Product Audit Report
 **Date:** 2026-07-29
-**Auditor:** Donna (orchestrator)
-**Branch:** dev (merged to main)
-**Scope:** Full codebase — API, Admin, Customer Web
+**Auditor:** Automated code review (Claude)
+**Codebase:** `/home/logesh/Coding/Projects/pandas-kitchen`
 
 ---
 
 ## 1. Product Completion Report
 
-### Authentication & Auth Flow
-| Feature | Status |
-|---|---|
-| Staff login (email+password, JWT) | Working |
-| Customer login (phone-based) | Working |
-| Access token (15m) + Refresh token (30d) | Working |
-| Token refresh endpoint | Working |
-| Logout + session invalidation | Working |
-| Change password | Working |
-| JWT secret hardening (throws on missing env) | Working |
-| Session table auto-cleanup (daily, on startup) | Working |
-| Rate limiting (ThrottlerGuard, 100 req/min) | Working |
+### Auth Module — `apps/api/src/auth/`
+| Feature | Status | Notes |
+|---|---|---|
+| Staff login (email + password) | Working | `auth.service.ts` — bcrypt compare, JWT issued |
+| Refresh token | Working | Session DB lookup, new access token returned |
+| Logout (token invalidation) | Working | Session deleted from DB |
+| Current user (`/me`) | Working | Returns user profile |
+| Change password | Working | Bcrypt re-hash, 8-char minimum enforced |
+| Customer login (phone-based) | Working | Auto-creates customer if not found, FK guard on restaurant |
+| Role-based guards | Working | `JwtAuthGuard` + `RolesGuard` wired globally via `APP_GUARD` |
+| Public route decorator | Working | `@Public()` skips auth correctly |
 
-### Menu Management
-| Feature | Status |
-|---|---|
-| Category CRUD | Working |
-| Menu item CRUD | Working |
-| Variants per item (size, etc.) | Working |
-| Addon groups + addons | Working |
-| Toggle item availability | Working |
-| Allergens field | Working |
-| Kitchen section assignment | Working |
-| BOM (Bill of Materials / ingredients) | Working |
-| Public menu API (customer-facing) | Working |
-| Pagination on public items endpoint | Working |
+### Menu Module — `apps/api/src/menu/`
+| Feature | Status | Notes |
+|---|---|---|
+| Category CRUD | Working | Includes item-count, ownership guard |
+| Delete category (with items) | Working | Blocked with `BadRequestException` if items exist |
+| Menu item CRUD | Working | Includes allergens, isVeg, preparationTime, departmentId |
+| Toggle item availability | Working | Atomic update |
+| Variants CRUD | Working | Ownership verified via parent item |
+| Addon Groups CRUD | Working | Full create/update/delete |
+| Addons CRUD | Working | Linked to addon groups |
+| Item ↔ AddonGroup linking | Working | Upsert + delete |
+| Public menu (unauthenticated) | Working | Full category+item+variant+addon tree |
+| Sort order | Working | All lists respect sortOrder + createdAt |
 
-### Tables
-| Feature | Status |
-|---|---|
-| Table CRUD | Working |
-| Status management (Available/Occupied/Reserved/Cleaning) | Working |
-| Table transfer between tables | Working |
-| Table merge | Working |
-| QR code generation per table | Working |
-| Floor plan x/y coordinates stored | Working |
+### Orders Module — `apps/api/src/orders/`
+| Feature | Status | Notes |
+|---|---|---|
+| Create order (staff POS) | Working | Full pricing: subtotal, discount (flat/%), service charge, GST |
+| Create public order (QR table) | Working | Auth-free, resolves restaurantId from branchId |
+| Order number collision retry | Working | P2002 caught, retried once with new number |
+| Customer stats update on order | Working | totalOrders + totalSpent incremented in transaction |
+| List orders with pagination | Working | page/limit/status/date/branchId filters |
+| Get single order | Working | Includes items, payments, table, customer |
+| Update order status | Working | Re-runs KOT generation on CONFIRMED |
+| Cancel order (staff) | Working | Blocks PAID orders |
+| Cancel public order | Working | 2-minute window enforced |
+| Order tracking (customer JWT) | Working | Customer ownership checked |
+| Digital receipt | Working | Returns full order + payments |
+| Auto KOT generation | Working | Grouped by departmentId, idempotent |
+| Inventory auto-deduct | Working | Triggered on SERVED/PAID, non-blocking |
+| Delivery address validation | Working | Required when orderType = DELIVERY |
+| Add-ons in order | Working | Addon price computed per item |
 
-### Orders
-| Feature | Status |
-|---|---|
-| Create order (admin) | Working |
-| Create order (public, customer-facing) | Working |
-| Order status transitions | Working |
-| Cancel order | Working |
-| Order receipt endpoint | Working |
-| Order tracking endpoint (customer) | Working |
-| Order number uniqueness (UUID-based) | Working |
-| Customer totalOrders/totalSpent updated on order | Working |
-| BOM stock deduction on order creation | Working |
+### Kitchen/KOT Module — `apps/api/src/kitchen/`
+| Feature | Status | Notes |
+|---|---|---|
+| Departments CRUD | Working | Branch-scoped, soft delete |
+| List KOT tickets (filtered) | Working | branchId + status + departmentId filters |
+| Get single KOT | Working | Full items with menuItem name and addon info |
+| Create KOT manually | Working | Groups by department |
+| Auto KOT from order creation | Working | Called from OrdersService, non-blocking |
+| Update KOT status | Working | Emits WebSocket event to kitchen room |
+| Update KOT item status | Working | Sets startedAt/completedAt timestamps |
+| Real-time KOT via WebSocket | Working | `kot.created`, `kot.status_changed`, `kot.item_updated` |
 
-### Kitchen / KDS
-| Feature | Status |
-|---|---|
-| KOT ticket auto-generation on order | Working |
-| KOT list (filter by branch, section, status) | Working |
-| KOT status transitions (Pending→InProgress→Completed) | Working |
-| KOT item-level status | Working |
-| Kitchen sections (departments) CRUD | Working |
-| Section filter on KDS board | Working |
-| Color coding by status | Working |
-| WebSocket real-time updates (Socket.io) | Working |
-| Auto-refresh (30s polling) | Working |
+### Tables Module — `apps/api/src/tables/`
+| Feature | Status | Notes |
+|---|---|---|
+| Table CRUD | Working | Soft delete, QR code auto-generated |
+| Table status update | Working | Emits WebSocket event |
+| Floor plan layout fields | Working | posX, posY, width, height, shape stored |
+| Table merge | Working | Moves items to primary order, cancels secondary, frees table |
+| Table transfer | Working | Updates both old and new table statuses |
+| Public table info | Working | Returns restaurant slug + theme for QR landing page |
+| QR code generation | Working | Uses `qrcode` npm package, returns data URL |
 
-### Payments
-| Feature | Status |
-|---|---|
-| Create payment (cash/card/UPI) | Working |
-| Split bill | Working |
-| Refund with idempotency guard | Working |
-| Payment breakdown in P&L | Working |
+### Customers Module — `apps/api/src/customers/`
+| Feature | Status | Notes |
+|---|---|---|
+| List/search customers | Working | name + phone search, insensitive |
+| Get customer + orders | Working | Full order history |
+| Create customer | Working | Duplicate phone check (ConflictException) |
+| Update customer | Working | Phone change uniqueness re-checked |
+| Soft delete customer | Working | isActive = false |
+| Loyalty points field | Working | Stored in schema, not auto-calculated |
 
-### Analytics
-| Feature | Status |
-|---|---|
-| Summary stats (revenue, orders, tables, customers) | Working |
-| Today revenue, today orders | Working |
-| Daily P&L with date picker | Working |
-| Daily revenue chart (last 30 days) | Working |
-| Orders by status (donut chart) | Working |
-| Popular items table | Working |
-| Reports: Today Sales | Working |
-| Reports: Day-wise | Working |
-| Reports: Item-wise | Working |
-| Reports: Payment Modes | Working |
-| Reports: Cancelled Orders | Working |
-| Reports: Top Customers | Working |
-| IST timezone-aware startOfDay | Working |
+### Inventory Module — `apps/api/src/inventory/`
+| Feature | Status | Notes |
+|---|---|---|
+| Inventory item CRUD | Working | Branch-scoped, soft delete |
+| Low stock alert | Working | Returns items where currentStock ≤ minStock |
+| Stock adjustment (manual) | Working | RESTOCK/MANUAL_DEDUCTION/WASTE/ORDER_DEDUCTION types |
+| Insufficient stock guard | Working | BadRequestException if new stock < 0 |
+| Adjustment history | Working | Last 50 adjustments per item |
+| BOM/Ingredients CRUD | Working | Link inventory items to menu items with quantity |
+| Auto-deduct on order served | Working | Sums quantities across items, deducts per ingredient |
 
-### Customers
-| Feature | Status |
-|---|---|
-| Customer list with search | Working |
-| Customer profile + order history | Working |
-| Customer CRUD | Working |
-| totalOrders / totalSpent aggregate fields | Working |
+### Shifts Module — `apps/api/src/shifts/`
+| Feature | Status | Notes |
+|---|---|---|
+| Open shift | Working | ConflictException if shift already open |
+| Close shift with summary | Working | Calculates totalCollected, cashCollected, variance |
+| Get active shift | Working | Returns null if none open |
+| List shift history | Working | Last 30 shifts |
+| Get shift summary | Working | byMethod breakdown, order count |
+| Real-time shift events | Working | `shift.opened`, `shift.closed` emitted to branch room |
 
-### Inventory
-| Feature | Status |
-|---|---|
-| Inventory item CRUD | Working |
-| Stock adjustment (add/remove) | Working |
-| Adjustment history | Working |
-| Low stock alert endpoint | Working |
-| BOM linkage (menu item → ingredients) | Working |
+### Reservations Module — `apps/api/src/reservations/`
+| Feature | Status | Notes |
+|---|---|---|
+| CRUD reservations | Working | branchId + tableId + date/status filters |
+| Reservation status flow | Working | UPCOMING→SEATED→COMPLETED/CANCELLED/NO_SHOW |
+| Socket event on SEATED | Working | Emits `reservation.seated` to branch room |
 
-### Shifts
-| Feature | Status |
-|---|---|
-| Open shift | Working |
-| Close shift | Working |
-| Shift summary (revenue + payment breakdown) | Working |
-| Active shift query | Working |
-| Admin page (open/close/view) | Working |
+### Employees Module — `apps/api/src/employees/`
+| Feature | Status | Notes |
+|---|---|---|
+| List employees (with branch) | Working | Optional branchId filter |
+| Create employee | Working | bcrypt hash, email uniqueness check |
+| Update employee | Working | name/role/branchId/isActive |
+| Deactivate employee | Working | Soft delete |
 
-### Reservations
-| Feature | Status |
-|---|---|
-| Reservation CRUD | Working |
-| Status management | Working |
-| Pax count | Working |
-| Admin page | Working |
+### Settings Module — `apps/api/src/settings/`
+| Feature | Status | Notes |
+|---|---|---|
+| Get/update restaurant | Working | name, logoUrl, themeColor |
+| Branch CRUD | Working | Create/update/list |
+| Staff CRUD (via Settings) | Working | Overlaps with Employees module |
 
-### Employees / Staff
-| Feature | Status |
-|---|---|
-| Employee CRUD | Working |
-| List employees | Working |
-| Admin page | Working |
-| Staff management in Settings (create/update/deactivate) | Working |
+### Analytics Module — `apps/api/src/analytics/`
+| Feature | Status | Notes |
+|---|---|---|
+| Summary widget | Working | totalRevenue, totalOrders, todayRevenue, todayOrders |
+| Daily revenue (30 days) | Working | Grouped by YYYY-MM-DD |
+| Popular items (top 10) | Working | Grouped by quantity |
+| Orders by status | Working | Pie chart data |
+| Daily P&L | Working | Revenue, tax, discount, byPaymentMode |
+| Reports: today-sales | Working | Returns total + revenue |
+| Reports: daywise | Working | Revenue per day in range |
+| Reports: item-wise | Working | Qty + revenue per menu item |
+| Reports: payment-modes | Working | Amount per mode |
+| Reports: cancelled | Working | List of cancelled orders |
+| Reports: customer-data | Working | Top 20 customers by spend |
+| Reports: repeated-customers | Working | Customers with >1 order |
+| Reports: employee-sales | Working | Order count + revenue per staff |
+| Reports: time-wise | Working | Revenue per hour (IST) |
+| Reports: monthwise | Working | Revenue per month |
+| IST timezone handling | Working | startOfDayIST/endOfDayIST helpers |
 
-### Settings
-| Feature | Status |
-|---|---|
-| Restaurant profile (name, theme, logo) | Working |
-| Branch management | Working |
-| Staff management | Working |
-| Security (change password) | Working |
-| Kitchen sections management | Working |
+### Payments Module — `apps/api/src/payments/`
+| Feature | Status | Notes |
+|---|---|---|
+| Record payment | Working | CASH/CARD/UPI/ONLINE/WALLET |
+| Auto-mark order PAID | Working | When totalPaid ≥ orderTotal |
+| Split bill calculation | Working | Per-item assignment with tax proportioning |
+| Refund payment | Working | Marks original REFUNDED, creates reverse record, recalculates paymentStatus |
+| Payment events | Working | `payment.created`, `payment.completed` via WebSocket |
 
-### AI Chat
-| Feature | Status |
-|---|---|
-| Menu-aware AI chat endpoint | Working |
-| Fallback mock response when no OpenAI key | Working |
-| Admin AI chat page | Working |
+### AI Module — `apps/api/src/ai/`
+| Feature | Status | Notes |
+|---|---|---|
+| AI dining assistant chat | Working | GPT-4o-mini if OPENAI_API_KEY set |
+| Mock fallback | Working | Returns top 3 items when no API key |
+| Menu context injection | Working | Loads up to 50 available items into system prompt |
 
-### Customer Web
-| Feature | Status |
-|---|---|
-| Table QR scan → menu page | Working |
-| Browse menu by category | Working |
-| Add to cart (variants, addons) | Working |
-| Place order | Working |
-| Order status tracking page | Working |
+### Events/WebSocket — `apps/api/src/events/`
+| Feature | Status | Notes |
+|---|---|---|
+| JWT auth on connect | Working | Disconnects unauthenticated clients |
+| join:branch room | Working | Staff join branch room |
+| join:kitchen room | Working | Kitchen staff join kitchen room |
+| join:order room | Working | Customers join order tracking room |
+| Emit helpers | Working | emitToKitchen, emitToBranch, emitToOrder, emitToRoom |
+| CORS on WebSocket | Partial | Only reads single CORS_ORIGIN, comma-split not applied here |
 
-### NOT Implemented (Phase 3B)
-| Feature | Status |
-|---|---|
-| CRM / Loyalty points | Not started |
-| Delivery tracking | Not started |
-| Accounting module | Not started |
-| HR / Payroll | Not started |
-| Password reset via email/OTP | Not started |
-| Push notifications | Not started |
-| File upload for menu images (S3/local) | Not started — images are URL-only |
-| Multi-language / i18n | Not started |
-| Franchise / multi-restaurant management | Not started |
+### Admin UI — `apps/admin/src/app/(dashboard)/`
+| Page | Status | Notes |
+|---|---|---|
+| Dashboard (`/`) | Working | Analytics summary, 6 stat cards |
+| Analytics (`/analytics`) | Working | Charts, P&L, 6 report types |
+| POS (`/pos`) | Working | Full POS with cart, variants, discount, GST, split bill, pay later |
+| Orders (`/orders`) | Working | Order list with pagination, status filters |
+| Orders receipt (`/orders/[id]/receipt`) | Working | Printable receipt page |
+| Kitchen (`/kitchen`) | Working | 3-column Kanban, dept filter, live WebSocket, auto-refresh |
+| Tables (`/tables`) | Working | Table management UI |
+| Menu (`/menu`) | Working | Menu categories + items management |
+| Customers (`/customers`) | Working | Customer list + search |
+| Inventory (`/inventory`) | Working | Inventory items + stock adjustment |
+| Shifts (`/shifts`) | Working | Open/close shift, history, cash variance |
+| Reservations (`/reservations`) | Working | Reservation list + create/update |
+| Employees (`/employees`) | Working | Employee list + create/deactivate |
+| Settings (`/settings`) | Working | Restaurant + branch + staff management |
+
+### Customer Web — `apps/customer-web/src/app/`
+| Page | Status | Notes |
+|---|---|---|
+| Home (`/`) | Working | Landing page |
+| Table landing (`/table/[tableId]`) | Working | QR code entry point — loads restaurant info |
+| Menu (`/menu/[restaurantId]`) | Working | Full menu browse with cart |
+| Order tracking (`/order/[orderId]`) | Working | Real-time order status via WebSocket |
 
 ---
 
@@ -182,112 +206,170 @@
 
 | Bug ID | Description | Status | Fix Location |
 |---|---|---|---|
-| BUG-01 | Analytics totalCustomers counted staff not customers | Fixed | analytics.service.ts:15 |
-| BUG-02 | Customer order history totalAmount was undefined (₹0.00) | Fixed | customers.service.ts — added totalAmount alias |
-| BUG-03 | Payment double-refund, no idempotency guard | Fixed | payments.service.ts:135 — status check added |
-| BUG-04 | Customer totalOrders/totalSpent never updated | Fixed | orders.service.ts — increment on order create |
-| BUG-05 | No global ValidationPipe | Fixed | main.ts — ValidationPipe with whitelist:true |
-| BUG-07 | Order number collision risk under load | Fixed | orders.service.ts — randomUUID() 8-char hex |
-| BUG-08 | Session table grew unbounded | Fixed | auth.service.ts — onModuleInit + 24h cleanup |
-| BUG-10 | Category delete with items gave generic 400 | Fixed | menu.service.ts — friendly error message |
-| BUG-11 | startOfToday() not timezone-aware | Fixed | analytics.service.ts — IST-aware startOfDayIST() |
-| BUG-12 | ThrottlerGuard not wired | Fixed | app.module.ts — APP_GUARD provider added |
-| BUG-13 | POS heading rendered "Pos" | Fixed | sidebar.tsx — label: "POS" |
-| SEC-01 | CORS wildcard origin | Fixed | main.ts — reads CORS_ORIGIN env var |
-| SEC-02 | JWT fallback secrets hardcoded | Fixed | jwt.strategy.ts — throws on missing env |
-| SEC-03 | No request body size limit | Fixed | main.ts — 1mb limit on json + urlencoded |
-| forbidNonWhitelisted false | ValidationPipe rejected unknown fields | Fixed | main.ts — set to true |
+| BUG-001 | customerLogin P2003 FK error when restaurantId invalid | Fixed | `auth.service.ts:144` — restaurant existence check before Customer upsert |
+| BUG-002 | Order number P2002 unique constraint collision | Fixed | `orders.service.ts:313` — retry on P2002 |
+| BUG-003 | Decimal serialization sending strings to frontend | Fixed | All services use `Number()` conversion in serialize helpers |
+| BUG-004 | KOT auto-generation duplicating items on repeated calls | Fixed | `kitchen.service.ts:129` — idempotency via alreadyKotted Set |
+| BUG-005 | forbidNonWhitelisted=false allows extra body fields | Open | `main.ts:14` — set to false; should be true for strict input |
+| BUG-006 | WebSocket CORS only accepts single origin | Partial | `events.gateway.ts:17` — does not split CORS_ORIGIN for WS |
+| BUG-007 | Auth module registers APP_GUARD twice (JwtAuthGuard + RolesGuard) | Open | `auth.module.ts:26-31` — both registered, but AppModule also has ThrottlerGuard as APP_GUARD — risk of guard conflict |
+| BUG-008 | QR code URL hardcoded fallback to local IP | Open | `tables.service.ts:186` — `http://192.168.0.109:3003` hardcoded as fallback |
+| BUG-009 | Inventory auto-deduct does not guard against negative stock | Open | `inventory.service.ts:182` — `decrement` can go below 0 in auto-deduct path |
+| BUG-010 | Shift close calculates payments from restaurant-wide, not branch | Open | `shifts.service.ts:83` — no branchId filter on payments query |
 
 ---
 
-## 3. Testing Report
+## 3. Testing Report (Code Review Based)
 
-| Module | Endpoints | DTO Validation | Error Cases | Tests | Status |
-|---|---|---|---|---|---|
-| Auth | 6 | Yes (class-validator) | UnauthorizedException, ConflictException | 20 tests | PASS |
-| Menu | 17 | Yes | NotFoundException, ConflictException | 8 tests | PASS |
-| Orders | 9 | Yes | NotFoundException, ForbiddenException | 28 tests | PASS |
-| Kitchen | 8 | Yes | NotFoundException | 24 tests | PASS |
-| Analytics | 7 | Yes | date validation | 30 tests | PASS |
-| Payments | 4 | Yes | idempotency guard, ForbiddenException | 18 tests | PASS |
-| Customers | 5 | Yes | NotFoundException | 24 tests | PASS |
-| Inventory | 9 | Yes | NotFoundException | 30 tests | PASS |
-| Shifts | 4 | Yes | ConflictException (shift already open) | 18 tests | PASS |
-| Reservations | 5 | Yes | NotFoundException | 24 tests | PASS |
-| Employees | 5 | Yes | NotFoundException | 20 tests | PASS |
-| Settings | 7 | Yes | NotFoundException, ForbiddenException | 28 tests | PASS |
-| Tables | 8 | Yes | NotFoundException | 24 tests | PASS |
-| AI | 1 | Yes | fallback on missing key | 8 tests | PASS |
+### Auth — PASS
+- Controller covers: login, refresh, logout, /me, change-password, customer-login
+- DTOs: LoginDto has `@IsEmail`, `@MinLength(6)`; RefreshTokenDto has `@IsNotEmpty`
+- Service: proper NotFoundException, UnauthorizedException, BadRequestException
+- Spec file exists: `auth.service.spec.ts`
 
-**Total: 152 tests, 15 suites, all passing (jest)**
+### Menu — PASS
+- All 20+ endpoints covered
+- DTOs have class-validator decorators
+- Ownership guards (`assertCategoryOwner`, `assertItemOwner`, etc.) on all mutations
+- Error cases: NotFoundException, ForbiddenException, BadRequestException on delete-with-items
+
+### Orders — PASS
+- Create validates items array (`ArrayMinSize(1)`)
+- Delivery address required check in service
+- Transaction used for order + customer stats update
+- Edge: empty addonIds array handled
+- Missing: no max-items-per-order guard (could create very large orders)
+
+### Kitchen — PASS
+- Department CRUD with branch ownership
+- KOT creation idempotency guard
+- Timestamp tracking (startedAt, completedAt) on item status changes
+- DTOs: `@IsEnum` on status fields
+
+### Tables — PASS
+- Merge guards: both orders must not be PAID/CANCELLED
+- Transfer: target table must be AVAILABLE
+- QR code generation wired to CUSTOMER_WEB_URL env
+
+### Customers — PASS
+- Duplicate phone: ConflictException on create and on phone change during update
+- Soft delete pattern consistent
+
+### Inventory — WARN
+- `adjustStock` guards against negative stock for manual adjustments
+- `deductForOrder` does **not** guard against negative stock (auto-deduct path)
+- No test for concurrent stock deduction race condition
+- Spec file exists
+
+### Shifts — WARN
+- Close shift payments query has no branchId filter — calculates all restaurant payments since shift open, not just the branch's payments
+- Spec file exists
+
+### Analytics — PASS
+- All 9 report types implemented and routed via `getReport()`
+- IST timezone handling is consistent across all time-based queries
+- `getPopularItems` totalRevenue uses base price, not actual order item price (minor accuracy issue for items with variants)
+
+### Payments — PASS
+- Transaction used for payment + order status update
+- Refund correctly recalculates paymentStatus on the order
+- Split bill does proportional tax sharing
+
+### Reservations — PASS
+- Full CRUD, status transitions, socket on SEATED
+
+### Employees — PASS
+- Create: email uniqueness checked
+- Update: only safe fields (name/role/branchId/isActive)
+- No endpoint to reset password for an employee (admin use case missing)
+
+### Settings — PASS
+- Branch CRUD, staff CRUD (duplicate of Employees module)
+- Both Settings and Employees modules manage users — functional but redundant
+
+### AI — PASS
+- Graceful fallback when OPENAI_API_KEY missing
+- Graceful fallback on API error
+- System prompt limits to 50 menu items to avoid token overflow
 
 ---
 
 ## 4. Production Readiness Report
 
 ### Security Review
-| Item | Status | Notes |
+
+| Check | Status | Notes |
 |---|---|---|
-| CORS | Configured | Reads CORS_ORIGIN env var. Set to specific domains before deploy |
-| JWT secrets | Hardened | Throws on missing env — no fallback |
-| Body size limit | Done | 1mb on JSON + urlencoded |
-| Rate limiting | Active | ThrottlerGuard: 100 req/60s globally |
-| Input validation | Active | ValidationPipe with whitelist + forbidNonWhitelisted |
-| SQL injection | Protected | Prisma ORM — parameterized queries throughout |
-| Password hashing | bcrypt rounds=10 | Acceptable baseline |
-| .env in gitignore | Needs verification | Confirm before first push to public repo |
-| HTTPS | Not configured | Terminate at reverse proxy (nginx/ALB) before deploy |
-| File upload size | N/A | No file upload — images are URLs only |
+| CORS origin configurable | Yes | `CORS_ORIGIN` env var, comma-split supported for HTTP |
+| CORS for WebSocket | Partial | WebSocket gateway uses raw `CORS_ORIGIN` string, no comma-split |
+| JWT secret required at boot | Yes | `jwt.strategy.ts` throws if `JWT_SECRET` not set |
+| JWT secret hardcoded fallback | RISK | `auth.module.ts:16` — `fallback-secret` used if JWT_SECRET missing during module init |
+| Refresh token DB-backed | Yes | Session table, expiry enforced |
+| Global validation pipe | Yes | `whitelist: true` strips unknown fields |
+| `forbidNonWhitelisted` | Off | Set to `false` in main.ts — should be `true` for production |
+| Body size limit | Default | No explicit body limit set — NestJS default is 100kb |
+| Rate limiting | Yes | ThrottlerModule: 100 req / 60s per IP |
+| SQL injection via Prisma | Protected | Prisma ORM parameterizes all queries |
+| Password hashing | Yes | bcrypt with cost 10 |
+| Sensitive fields excluded | Yes | `passwordHash` never returned in API responses |
+| Role guards registered globally | Yes | Both JwtAuthGuard and RolesGuard as APP_GUARD |
+| Swagger disabled in production | Yes | `NODE_ENV !== 'production'` check |
 
 ### Performance Review
-| Item | Status | Notes |
+
+| Check | Status | Notes |
 |---|---|---|
-| DB indexes on Order | Present | restaurantId+status, restaurantId+createdAt, branchId |
-| DB indexes on MenuItem | Present | restaurantId+isAvailable, categoryId |
-| DB indexes on KOT | Present | branchId+status |
-| DB indexes on Payment | Present | orderId, restaurantId |
-| DB indexes on Customer | Present | restaurantId, restaurantId_phone unique |
-| Pagination | Partial | Public menu items paginated. Admin endpoints not paginated |
-| N+1 queries | Acceptable | Prisma include used correctly — no obvious N+1 |
-| WebSocket events | Working | Socket.io on same NestJS instance — fine for single-server |
+| DB indexes on hot queries | Yes | `Order[restaurantId,status]`, `Order[restaurantId,createdAt]`, `Session[token]`, `MenuCategory[restaurantId]`, `MenuItem[restaurantId,isAvailable]`, `KOTTicket[branchId,status]` |
+| Pagination implemented | Yes | Orders list: page/limit with metadata |
+| N+1 risk: KOT list | Low | Items included in single query via Prisma `include` |
+| N+1 risk: getPopularItems | Present | Two queries (groupBy + findMany) but no loop |
+| N+1 risk: deductForOrder | Present | One DB write per unique inventory item in a loop (non-blocking) |
+| N+1 risk: analytics reports | Low | Most reports load all matching orders then reduce in JS |
+| listOrders includes all items | Present | Full item list returned on every order in list — could be heavy for large result sets |
+| WebSocket connection auth | Per-connection | JWT verified on each WS connect |
+
+### Environment Variables
+
+All `process.env` references found:
+
+| Variable | Purpose | Required |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL connection string | Yes (Prisma) |
+| `JWT_SECRET` | Access token signing secret | Yes |
+| `JWT_REFRESH_SECRET` | Refresh token signing secret | Yes |
+| `JWT_EXPIRES_IN` | Access token TTL (default: 15m) | Optional |
+| `JWT_REFRESH_EXPIRES_IN` | Refresh token TTL (default: 30d) | Optional |
+| `CORS_ORIGIN` | Allowed HTTP origins (comma-separated) | Optional (default: localhost:3000) |
+| `CUSTOMER_WEB_URL` | Used for QR code URL generation | Optional (default: hardcoded local IP) |
+| `PORT` | HTTP server port (default: 3001) | Optional |
+| `HOST` | HTTP bind address (default: 0.0.0.0) | Optional |
+| `NODE_ENV` | Disables Swagger in production | Optional |
+| `OPENAI_API_KEY` | AI chat feature | Optional (graceful fallback) |
+
+No `.env.example` file found in the repository.
 
 ### Build Status
-- TypeScript: 0 errors (API + Admin)
-- Jest: 152/152 passing
-- ESLint: not run in this audit — recommend adding to CI
-- bun dev: all 3 servers start cleanly
 
-### Environment Variables Required
-```
-DATABASE_URL
-JWT_SECRET
-JWT_REFRESH_SECRET
-JWT_EXPIRES_IN=15m
-JWT_REFRESH_EXPIRES_IN=30d
-CORS_ORIGIN=https://yourdomain.com
-PORT=3001
-HOST=0.0.0.0
-NODE_ENV=production
-OPENAI_API_KEY (optional — AI chat degrades gracefully without it)
-```
-All documented in apps/api/.env.example
+- TypeScript project with NestJS + Next.js
+- Prisma schema is clean with no obvious TS errors visible in source
+- One known workaround: `analytics.service.ts:262` — `this.prisma.orderItem.groupBy as any` cast to avoid Prisma circular-type TS bug (runtime correct)
+- `qrcode` module loaded via `require()` at runtime in `tables.service.ts:191` — should be a proper import
 
 ### Deployment Readiness Checklist
-- [x] TypeScript clean
-- [x] Tests passing
-- [x] CORS configured via env
-- [x] JWT secrets via env, throws on missing
-- [x] Body size limit
-- [x] Rate limiting active
-- [x] DB migrations present and applied
-- [x] DB indexes on hot paths
-- [x] Session cleanup running
-- [ ] HTTPS (needs reverse proxy config)
-- [ ] .env confirmed not in git
-- [ ] Production DATABASE_URL pointed to managed DB
-- [ ] OPENAI_API_KEY set (optional, for AI chat)
-- [ ] ESLint CI check
-- [ ] Admin pagination (nice-to-have, not blocking)
+
+| Item | Status |
+|---|---|
+| DATABASE_URL env documented | No `.env.example` |
+| JWT_SECRET env set | Required — no default fallback enforced at runtime startup (fallback string in auth.module) |
+| Production CORS origins configured | Needs CORS_ORIGIN |
+| Swagger disabled in prod | Yes — NODE_ENV guard |
+| Health check endpoint | No — not implemented |
+| Database migrations tracked | Yes — Prisma migrations |
+| Seed script | Yes — `apps/api/prisma/seed.ts` exists |
+| Body size limits | Not configured |
+| Error logging | Yes — HttpExceptionFilter + PrismaExceptionFilter |
+| Zero-downtime restart | Not configured (no PM2/k8s config) |
+| Docker / container config | Not found in repo |
 
 ---
 
@@ -295,39 +377,65 @@ All documented in apps/api/.env.example
 
 | Priority | Task | Effort | Notes |
 |---|---|---|---|
-| Critical | HTTPS / reverse proxy config | 2h | nginx or ALB required before any real traffic |
-| Critical | Confirm .env not committed | 15min | Check git history for accidental secret commits |
-| High | Admin pagination (orders, customers, inventory) | 1 day | Will be needed at real scale |
-| High | Password reset via email/OTP | 1 day | Currently no self-service reset |
-| High | Image upload (S3 or local storage) | 1 day | Currently URL-only, impractical for real use |
-| High | CRM / Loyalty points | 2 days | Backend schema needs new model |
-| High | Delivery tracking | 2 days | No delivery address UI, no driver assignment |
-| Medium | ESLint CI enforcement | 2h | Prevents code quality drift |
-| Medium | Accounting module | 3 days | P&L exists but no double-entry bookkeeping |
-| Medium | HR / Payroll | 3 days | Employees exist but no payroll calculation |
-| Medium | Multi-branch analytics | 1 day | Current analytics filters by restaurantId, not branch |
-| Medium | Push notifications (FCM or websocket) | 1 day | Order status → customer notification |
-| Medium | Admin pagination | 1 day | Orders and customer lists will hit limits at scale |
-| Medium | Shared types package population | 2h | packages/types is empty — duplication between API+admin |
-| Low | i18n / multi-language | 3 days | Not needed for initial launch |
-| Low | Multi-restaurant franchise mode | 1 week | Single restaurant per deploy is fine for now |
-| Low | Dark mode admin | 1 day | Cosmetic |
-| Low | Offline POS (service worker) | 2 days | Network dependency is a risk for busy kitchens |
-| Low | API documentation improvements | 1 day | Swagger is present but descriptions sparse |
-| Low | E2E test suite (Playwright) | 2 days | Unit tests cover business logic, no E2E currently |
+| P0 | Fix `forbidNonWhitelisted: false` → `true` in `main.ts` | XS | Security — allows arbitrary body fields through |
+| P0 | Fix JWT_SECRET fallback string in `auth.module.ts` | XS | `fallback-secret` used if env not set — silent security hole |
+| P0 | Fix QR code URL hardcoded fallback (`192.168.0.109`) | XS | Replace with proper env var requirement |
+| P0 | Add health check endpoint (`/health`) | S | Required for load balancers and container orchestration |
+| P1 | Fix shift close to filter payments by branchId | XS | `shifts.service.ts:83` — currently sums all restaurant payments |
+| P1 | Guard auto-deduct against negative stock | S | `inventory.service.ts` deductForOrder needs stock check |
+| P1 | Add `.env.example` file | S | Document all required/optional environment variables |
+| P1 | Fix WebSocket CORS to support comma-split origins | XS | `events.gateway.ts` — parse CORS_ORIGIN same as HTTP |
+| P1 | Add employee password reset endpoint | S | Admin use case — currently only self-change supported |
+| P2 | Add explicit body size limit (`bodyParser` limit) | XS | Prevent large payload attacks |
+| P2 | Fix `qrcode` require() to proper import | XS | `tables.service.ts:190` |
+| P2 | Customer Web: AI chat UI not found | M | `ai.controller.ts` exists but no customer-facing chat page |
+| P2 | Admin: No department management UI | M | Kitchen departments CRUD API exists, no admin page |
+| P2 | Admin: No inventory ingredients/BOM UI | M | API exists (`/inventory/:id/ingredients`), no UI |
+| P2 | Admin: No QR code print page | S | `getQRCode` endpoint exists, no dedicated print UI |
+| P2 | Admin: Analytics missing 3 report types in UI | S | `repeated-customers`, `employee-sales`, `time-wise`, `monthwise` not in UI tabs |
+| P3 | CRM / Loyalty program | L | Schema has `loyaltyPoints` field but no earn/redeem logic |
+| P3 | Delivery management module | L | OrderType.DELIVERY exists but no delivery tracking/driver UI |
+| P3 | Accounting / expense tracking | XL | Not started |
+| P3 | HR / Payroll module | XL | Not started — employees exist but no payroll |
+| P3 | Customer Web: Delivery address input | M | OrderType DELIVERY possible but no delivery address field in customer web |
+| P3 | Multi-restaurant / SaaS onboarding | L | Restaurant model exists but no self-signup flow |
+| P3 | Add `@IsNotEmpty` to change-password body params | XS | `auth.controller.ts:63` — raw `@Body()` params with no DTO validation |
+| P3 | Image upload for menu items / restaurant logo | L | `imageUrl` field exists but upload endpoint not found |
+| Tech Debt | Consolidate Settings/Employees modules | M | Both manage User records — creates confusion |
+| Tech Debt | Add request logging middleware | S | Currently no structured request/response logging |
+| Tech Debt | Add unit tests for TablesService (merge/transfer) | M | Complex logic with no spec file found |
+| Tech Debt | Add E2E tests | XL | No Playwright/Supertest E2E tests found |
+| Tech Debt | Docker Compose for local dev | M | No containerization config found |
+| Tech Debt | `getPopularItems` revenue calculation uses base price | S | Should use actual `OrderItem.totalPrice` for accuracy with variants |
+| Tech Debt | Orders list response includes full items array | M | Consider summary-only list + detail-on-demand pattern for performance |
+| Tech Debt | AI chat: no message history persistence | M | Chat is stateless — no conversation history stored |
+| Doc | API documentation beyond Swagger | M | No developer/operator docs |
+| Doc | Deployment guide | M | No DEPLOY.md or infrastructure docs |
+
+---
+
+## Summary
+
+**Core platform is functionally complete** for a restaurant POS + kitchen management system. All 14 backend modules are implemented with proper ownership guards, error handling, and real-time WebSocket events. All 14 admin UI pages are implemented. The customer web has the full QR-order flow.
+
+Key gaps before production deployment:
+1. Two security issues: JWT_SECRET fallback string + `forbidNonWhitelisted: false`
+2. Missing health check endpoint
+3. No `.env.example` — operational risk
+4. Hardcoded IP in QR code fallback
+5. Shift summary bug (branchId not filtered)
+
+Phase 3B features (Loyalty, Delivery, Accounting, HR/Payroll) are not started.
 
 ---
 
 ## PRODUCTION READY: NO
 
-### Blockers before first real customer:
-1. **HTTPS not configured** — never run a restaurant POS over HTTP in production
-2. **Verify .env not in git** — check `git log --all -- apps/api/.env` before making repo public
-3. **CORS_ORIGIN** must be set to real frontend domain in production env
-4. **Image upload** — URL-only images means staff can't upload photos, which is impractical
+**Blockers:**
+1. `auth.module.ts:16` — JWT_SECRET fallback string (`"fallback-secret"`) is a critical security misconfiguration that would silently sign tokens with a known secret if the env var is missing.
+2. `main.ts:14` — `forbidNonWhitelisted: false` allows arbitrary extra fields through validation — should be `true`.
+3. No health check endpoint — required for any container/load-balancer deployment.
+4. No `.env.example` — operational teams cannot deploy without documentation.
+5. `tables.service.ts:186` — QR code URL hardcoded to `http://192.168.0.109:3003` as fallback.
 
-### Safe to deploy for internal testing / demo:
-Yes — the above blockers don't affect a closed demo environment.
-
-### Everything else is solid:
-Auth, menu, POS, kitchen, orders, payments, analytics, shifts, reservations, employees, inventory, customer web — all working, tested, and code-reviewed.
+All 5 blockers are small fixes (< 1 hour total). After those are resolved and `.env.example` is created, the platform is functionally ready for a production pilot.

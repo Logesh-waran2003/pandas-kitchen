@@ -1,0 +1,23 @@
+Bug fixes applied — 2026-07-29
+
+1. QR URL hardcoded WiFi IP fallback
+   File: apps/api/src/tables/tables.service.ts:186
+   Changed fallback from 'http://192.168.0.109:3003' to 'http://localhost:3003'
+   Also added CUSTOMER_WEB_URL to apps/api/.env.example
+
+2. WebSocket CORS single-origin handling
+   File: apps/api/src/events/events.gateway.ts:16
+   Changed single string origin to split(",").map(o => o.trim()) array
+   Matches the multi-origin handling already used in main.ts HTTP CORS
+
+3. Shift close/summary payment totals scoped to branch
+   File: apps/api/src/shifts/shifts.service.ts:83-89, 143-156
+   Added `order: { branchId: shift.branchId }` relation filter to both
+   payment queries in closeShift() and getShiftSummary()
+   Also scoped order count query to branchId in getShiftSummary()
+
+4. Allergens display on customer web menu
+   File: apps/customer-web/src/app/menu/[restaurantId]/page.tsx
+   Added allergens?: string[] to MenuItem interface
+   Added allergen badge below price in menu item card:
+   red-50 bg, red-600 text, "Contains: X, Y" format

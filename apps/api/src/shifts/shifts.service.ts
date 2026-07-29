@@ -83,6 +83,7 @@ export class ShiftsService {
     const payments = await this.prisma.payment.findMany({
       where: {
         restaurantId,
+        order: { branchId: shift.branchId },
         createdAt: { gte: shift.openedAt },
         status: "COMPLETED",
       },
@@ -143,6 +144,7 @@ export class ShiftsService {
     const payments = await this.prisma.payment.findMany({
       where: {
         restaurantId,
+        order: { branchId: shift.branchId },
         createdAt: { gte: shift.openedAt, lte: endTime },
         status: "COMPLETED",
       },
@@ -151,6 +153,7 @@ export class ShiftsService {
     const orderCount = await this.prisma.order.count({
       where: {
         restaurantId,
+        branchId: shift.branchId,
         createdAt: { gte: shift.openedAt, lte: endTime },
         status: { not: "CANCELLED" },
       },

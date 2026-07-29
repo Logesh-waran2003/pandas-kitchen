@@ -183,7 +183,7 @@ export class TablesService {
     if (!table) throw new NotFoundException('Table not found')
     if (table.restaurantId !== restaurantId) throw new NotFoundException('Table not found')
 
-    const CUSTOMER_URL = process.env.CUSTOMER_WEB_URL ?? 'http://192.168.0.109:3003'
+    const CUSTOMER_URL = process.env.CUSTOMER_WEB_URL ?? 'http://localhost:3003'
     const url = `${CUSTOMER_URL}/table/${tableId}`
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports

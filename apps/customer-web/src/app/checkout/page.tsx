@@ -187,10 +187,14 @@ export default function CheckoutPage() {
 
     setPlacing(true)
     try {
+      // no tableId = direct online order
+      const orderSource = tableId ? "QR_TABLE" : "ONLINE"
+
       const payload: Record<string, unknown> = {
         branchId,
         tableId: tableId ?? undefined,
         orderType,
+        orderSource,
         customerId,
         items: items.map((i) => ({
           menuItemId: i.menuItemId,

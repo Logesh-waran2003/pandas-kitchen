@@ -25,10 +25,16 @@ interface Order {
   total: number
   subtotal?: number
   tax?: number
+  serviceCharge?: number
+  deliveryFee?: number
+  packagingFee?: number
+  tip?: number
+  couponDiscount?: number
   orderType?: "DINE_IN" | "TAKEAWAY" | "DELIVERY"
   pickupCode?: string | null
   items: OrderItem[]
   table?: { tableNumber: string } | null
+  customer?: { name?: string; phone?: string } | null
   createdAt?: string
   paymentLabel?: string
 }
@@ -82,6 +88,61 @@ function getCancelSecondsLeft(createdAt: string | undefined): number {
   if (!createdAt) return 0
   const elapsed = Date.now() - new Date(createdAt).getTime()
   return Math.max(0, Math.floor((2 * 60 * 1000 - elapsed) / 1000))
+}
+
+function downloadReceipt(order: Order) {
+  const win = window.open("", "_blank")
+  if (!win) return
+  const items = order.items.map((i) =>
+    `<tr>
+      <td style="padding:4px 0">${i.menuItem?.name ?? i.name ?? "Item"}${i.variantName ? ` (${i.variantName})` : ""}</td>
+      <td style="text-align:center;padding:4px 8px">×${i.quantity}</td>
+      <td style="text-align:right;padding:4px 0">₹${Number(i.totalPrice).toFixed(2)}</td>
+    </tr>`
+  ).join("")
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Receipt</title>
+<style>
+  body { font-family: 'Courier New', monospace; max-width: 320px; margin: 20px auto; font-size: 13px; color: #000; }
+  h2 { text-align: center; margin: 0; font-size: 18px; }
+  .sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 8px; }
+  hr { border: none; border-top: 1px dashed #999; margin: 8px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  .total { font-weight: bold; font-size: 15px; }
+  .footer { text-align: center; margin-top: 12px; font-size: 11px; }
+  @media print { body { margin: 0; } }
+</style></head><body>
+<h2>🐼 Pandas Kitchen</h2>
+<div class="sub">Online Order Receipt</div>
+<hr>
+<div>Order: <b>#${order.orderNumber}</b></div>
+<div>Date: ${new Date(order.createdAt ?? Date.now()).toLocaleString()}</div>
+<div>Type: ${order.orderType?.replace("_", " ")}</div>
+${order.customer ? `<div>Name: ${order.customer.name}</div><div>Phone: ${order.customer.phone}</div>` : ""}
+<hr>
+<table>
+  <thead><tr><th style="text-align:left">Item</th><th>Qty</th><th style="text-align:right">Price</th></tr></thead>
+  <tbody>${items}</tbody>
+</table>
+<hr>
+<table>
+  <tr><td>Subtotal</td><td style="text-align:right">₹${Number(order.subtotal).toFixed(2)}</td></tr>
+  <tr><td>Tax</td><td style="text-align:right">₹${Number(order.tax).toFixed(2)}</td></tr>
+  ${Number(order.serviceCharge) > 0 ? `<tr><td>Service charge</td><td style="text-align:right">₹${Number(order.serviceCharge).toFixed(2)}</td></tr>` : ""}
+  ${Number(order.deliveryFee) > 0 ? `<tr><td>Delivery fee</td><td style="text-align:right">₹${Number(order.deliveryFee).toFixed(2)}</td></tr>` : ""}
+  ${Number(order.packagingFee) > 0 ? `<tr><td>Packaging fee</td><td style="text-align:right">₹${Number(order.packagingFee).toFixed(2)}</td></tr>` : ""}
+  ${Number(order.tip) > 0 ? `<tr><td>Tip</td><td style="text-align:right">₹${Number(order.tip).toFixed(2)}</td></tr>` : ""}
+  ${Number(order.couponDiscount) > 0 ? `<tr><td>Coupon discount</td><td style="text-align:right">−₹${Number(order.couponDiscount).toFixed(2)}</td></tr>` : ""}
+  <tr class="total"><td><b>Total</b></td><td style="text-align:right"><b>₹${Number(order.total).toFixed(2)}</b></td></tr>
+</table>
+<hr>
+<div class="footer">Thank you for your order! 🙏<br>Pandas Kitchen</div>
+<script>window.onload = () => window.print()</script>
+</body></html>`
+
+  win.document.write(html)
+  win.document.close()
 }
 
 export default function OrderTrackerPage() {
@@ -543,16 +604,15 @@ export default function OrderTrackerPage() {
           </button>
         )}
 
-        {/* Receipt link for served/paid orders */}
+        {/* Download Receipt */}
         {(order.status === "SERVED" || order.status === "PAID") && (
-          <a
-            href={`${process.env.NEXT_PUBLIC_ADMIN_URL ?? "http://localhost:3000"}/orders/${orderId}/receipt`}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={() => downloadReceipt(order)}
             className="w-full flex items-center justify-center gap-2 border-2 border-orange-200 text-orange-600 rounded-2xl py-3.5 font-semibold text-sm bg-white"
           >
-            🧾 View Receipt
-          </a>
+            <Receipt className="w-4 h-4" />
+            Download Receipt
+          </button>
         )}
 
         {/* Call Waiter + Request Bill */}

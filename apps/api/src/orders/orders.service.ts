@@ -497,7 +497,7 @@ export class OrdersService {
       },
     })
 
-    const statusPayload = { id: order.id, orderNumber: order.orderNumber, status: order.status }
+    const statusPayload = { id: order.id, orderNumber: order.orderNumber, status: order.status, orderType: order.orderType }
     this.events.emitToBranch(order.branchId, "order.status_changed", statusPayload)
     this.events.emitToOrder(order.id, "order.status_changed", statusPayload)
 
@@ -508,9 +508,20 @@ export class OrdersService {
 
     // Auto-deduct inventory when order is served or paid
     if (dto.status === "SERVED" || dto.status === "PAID") {
-      this.inventoryService.deductForOrder(id).catch(() => {
-        // Non-blocking — don't fail the status update if BOM deduction errors
-      })
+      this.inventoryService.deductForOrder(id).catch(() => {})
+    }
+
+    // Loyalty points + stats on PAID
+    if (dto.status === "PAID" && order.customerId) {
+      const pointsEarned = Math.floor(Number(order.total) / 10)
+      this.prisma.customer.update({
+        where: { id: order.customerId },
+        data: {
+          loyaltyPoints: { increment: pointsEarned },
+          totalOrders: { increment: 1 },
+          totalSpent: { increment: order.total },
+        },
+      }).catch(() => {})
     }
 
     return this.serializeOrder(order)
@@ -611,6 +622,11 @@ export class OrdersService {
     const cancelPayload = { id: updated.id, orderNumber: updated.orderNumber, status: "CANCELLED" }
     this.events.emitToBranch(updated.branchId, "order.cancelled", cancelPayload)
     this.events.emitToOrder(updated.id, "order.cancelled", cancelPayload)
+
+    // Restore inventory if it was already deducted (order was SERVED before cancellation)
+    if (order.status === "SERVED") {
+      this.inventoryService.restoreForOrder(id).catch(() => {})
+    }
 
     return this.serializeOrder(updated)
   }

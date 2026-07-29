@@ -1,14 +1,14 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft, ShoppingBag, MapPin, LogOut, ChevronRight } from "lucide-react"
 import { apiFetch } from "@/lib/api"
 import { useCustomerAuthStore } from "@/stores/customer-auth.store"
 
 export default function AccountPage() {
   const { restaurantId } = useParams<{ restaurantId: string }>()
   const router = useRouter()
-  const { setAuth, isLoggedIn } = useCustomerAuthStore()
+  const { setAuth, clearAuth, isLoggedIn, name: customerName } = useCustomerAuthStore()
 
   const [mode, setMode] = useState<"login" | "register">("login")
 
@@ -22,13 +22,6 @@ export default function AccountPage() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-
-  // Already logged in — redirect to menu
-  useEffect(() => {
-    if (isLoggedIn()) {
-      router.replace(`/menu/${restaurantId}`)
-    }
-  }, [isLoggedIn, restaurantId, router])
 
   function clearForm() {
     setPhone("")
@@ -102,6 +95,77 @@ export default function AccountPage() {
     }
   }
 
+  // ── Account home (logged in) ─────────────────────────────────────────────
+  if (isLoggedIn()) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div className="bg-white border-b border-gray-200 sticky top-0 z-30 px-4 py-3 flex items-center gap-3 shadow-sm">
+          <button
+            onClick={() => router.back()}
+            className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
+            aria-label="Go back"
+          >
+            <ChevronLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <h1 className="text-lg font-bold text-gray-900">My Account</h1>
+        </div>
+
+        <div className="px-4 py-6 space-y-4">
+          {/* Greeting */}
+          <div className="bg-orange-500 rounded-2xl p-5 text-white">
+            <p className="text-4xl mb-2">🐼</p>
+            <p className="font-bold text-xl">Hi, {customerName ?? "there"}!</p>
+            <p className="text-orange-100 text-sm mt-0.5">Welcome to Pandas Kitchen</p>
+          </div>
+
+          {/* Nav links */}
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-gray-100">
+            <button
+              onClick={() => router.push(`/account/${restaurantId}/orders`)}
+              className="w-full flex items-center gap-3 px-4 py-4 hover:bg-gray-50 transition-colors"
+            >
+              <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
+                <ShoppingBag className="w-4 h-4 text-orange-600" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-semibold text-gray-900">My Orders</p>
+                <p className="text-xs text-gray-400">View your order history</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
+
+            <button
+              onClick={() => router.push(`/account/${restaurantId}/addresses`)}
+              className="w-full flex items-center gap-3 px-4 py-4 hover:bg-gray-50 transition-colors"
+            >
+              <div className="w-9 h-9 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
+                <MapPin className="w-4 h-4 text-orange-600" />
+              </div>
+              <div className="flex-1 text-left">
+                <p className="text-sm font-semibold text-gray-900">Saved Addresses</p>
+                <p className="text-xs text-gray-400">Manage delivery addresses</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+
+          {/* Logout */}
+          <button
+            onClick={() => {
+              clearAuth()
+              router.replace(`/menu/${restaurantId}`)
+            }}
+            className="w-full flex items-center justify-center gap-2 border-2 border-red-100 text-red-500 rounded-2xl py-3.5 font-semibold text-sm bg-white hover:bg-red-50 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Login / Register ─────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
@@ -116,7 +180,47 @@ export default function AccountPage() {
         <h1 className="text-lg font-bold text-gray-900">My Account</h1>
       </div>
 
-      <div className="flex-1 flex items-center justify-center px-4 py-8">
+      {isLoggedIn() ? (
+        /* Logged-in home */
+        <div className="flex-1 px-4 py-6 space-y-4">
+          <div className="bg-orange-500 rounded-2xl px-5 py-5 text-white">
+            <p className="text-2xl mb-1">🐼</p>
+            <p className="font-bold text-lg">{customerName ?? "Welcome back!"}</p>
+            <p className="text-orange-100 text-sm">Pandas Kitchen member</p>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <button
+              onClick={() => router.push(`/account/${restaurantId}/orders`)}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors border-b border-gray-100"
+            >
+              <div className="flex items-center gap-3">
+                <ShoppingBag className="w-5 h-5 text-orange-500" />
+                <span className="font-medium text-gray-900 text-sm">My Orders</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
+            <button
+              onClick={() => router.push(`/account/${restaurantId}/addresses`)}
+              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <MapPin className="w-5 h-5 text-orange-500" />
+                <span className="font-medium text-gray-900 text-sm">Saved Addresses</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            </button>
+          </div>
+
+          <button
+            onClick={() => { clearAuth(); router.push(`/menu/${restaurantId}`) }}
+            className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-600 rounded-2xl py-3.5 text-sm font-semibold bg-white hover:bg-gray-50 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </button>
+        </div>
+      ) : (
         <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           {/* Logo */}
           <div className="bg-orange-500 px-6 py-8 text-center">
@@ -225,7 +329,7 @@ export default function AccountPage() {
             </button>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

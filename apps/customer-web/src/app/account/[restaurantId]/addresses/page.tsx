@@ -1,134 +1,127 @@
 "use client"
-
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ChevronLeft, Plus, MapPin, Star, Trash2, X, Check } from "lucide-react"
+import { ChevronLeft, MapPin, Plus, Trash2, Check, Star } from "lucide-react"
 import { toast } from "sonner"
+import { useCustomerAuthStore } from "@/stores/customer-auth.store"
+import { customerApiFetch } from "@/lib/customer-api"
 
-interface Address {
+interface SavedAddress {
   id: string
   label: string
   address: string
   isDefault: boolean
-  lat?: number | null
-  lng?: number | null
-}
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1"
-
-function getCustomerToken(): string | null {
-  if (typeof window === "undefined") return null
-  try {
-    const raw = localStorage.getItem("pk-customer-auth")
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    return parsed?.state?.token ?? parsed?.token ?? null
-  } catch { return null }
-}
-
-async function addressFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getCustomerToken()
-  if (!token) throw new Error("Not logged in")
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
-      ...(options.headers as Record<string, string> ?? {}),
-    },
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(err.message ?? "Request failed")
-  }
-  return res.json()
 }
 
 export default function AddressesPage() {
   const { restaurantId } = useParams<{ restaurantId: string }>()
   const router = useRouter()
+  const { token, isLoggedIn } = useCustomerAuthStore()
 
-  const [addresses, setAddresses] = useState<Address[]>([])
+  const [addresses, setAddresses] = useState<SavedAddress[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState<string | null>(null)
 
-  // Form state
-  const [label, setLabel] = useState("Home")
-  const [addressText, setAddressText] = useState("")
-  const [isDefault, setIsDefault] = useState(false)
+  const [labelInput, setLabelInput] = useState("Home")
+  const [addressInput, setAddressInput] = useState("")
+  const [isDefaultInput, setIsDefaultInput] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
-    const token = getCustomerToken()
-    if (!token) {
+    if (!isLoggedIn()) {
       router.replace(`/account/${restaurantId}`)
       return
     }
-    load()
-  }, [restaurantId])
+    fetchAddresses()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function load() {
+  async function fetchAddresses() {
+    if (!token) return
     setLoading(true)
     try {
-      const data = await addressFetch<Address[]>("/customers/me/addresses")
+      const data = await customerApiFetch<SavedAddress[]>("/customers/me/addresses", token)
       setAddresses(data)
-    } catch (e) {
-      if ((e as Error).message === "Not logged in") {
-        router.replace(`/account/${restaurantId}`)
-      } else {
-        toast.error("Failed to load addresses")
-      }
+    } catch {
+      toast.error("Could not load addresses")
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleAdd() {
-    if (!addressText.trim()) { toast.error("Address is required"); return }
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!token || !addressInput.trim()) return
     setSaving(true)
     try {
-      const added = await addressFetch<Address>("/customers/me/addresses", {
-        method: "POST",
-        body: JSON.stringify({ label: label.trim() || "Home", address: addressText.trim(), isDefault }),
+      const created = await customerApiFetch<SavedAddress>(
+        "/customers/me/addresses",
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            label: labelInput.trim() || "Home",
+            address: addressInput.trim(),
+            isDefault: isDefaultInput,
+          }),
+        }
+      )
+      setAddresses((prev) => {
+        const base = isDefaultInput ? prev.map((a) => ({ ...a, isDefault: false })) : prev
+        return [...base, created]
       })
-      if (isDefault) {
-        setAddresses((prev) => [added, ...prev.map((a) => ({ ...a, isDefault: false }))])
-      } else {
-        setAddresses((prev) => [...prev, added])
-      }
-      toast.success("Address saved")
-      setShowForm(false)
-      setLabel("Home")
-      setAddressText("")
-      setIsDefault(false)
+      toast.success("Address saved!")
+      resetForm()
     } catch (e) {
-      toast.error((e as Error).message ?? "Failed to save address")
+      toast.error(e instanceof Error ? e.message : "Failed to save address")
     } finally {
       setSaving(false)
     }
   }
 
-  async function handleDelete(id: string) {
-    setDeleting(id)
+  async function handleSetDefault(id: string) {
+    if (!token) return
     try {
-      await addressFetch(`/customers/me/addresses/${id}`, { method: "DELETE" })
-      setAddresses((prev) => prev.filter((a) => a.id !== id))
-      toast.success("Address removed")
+      await customerApiFetch<SavedAddress>(
+        `/customers/me/addresses/${id}`,
+        token,
+        { method: "PATCH", body: JSON.stringify({ isDefault: true }) }
+      )
+      setAddresses((prev) => prev.map((a) => ({ ...a, isDefault: a.id === id })))
+      toast.success("Default address updated")
     } catch {
-      toast.error("Failed to remove address")
-    } finally {
-      setDeleting(null)
+      toast.error("Could not update address")
     }
   }
 
+  async function handleDelete(id: string) {
+    if (!token) return
+    setDeletingId(id)
+    try {
+      await customerApiFetch<void>(`/customers/me/addresses/${id}`, token, { method: "DELETE" })
+      setAddresses((prev) => prev.filter((a) => a.id !== id))
+      toast.success("Address removed")
+    } catch {
+      toast.error("Could not delete address")
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  function resetForm() {
+    setLabelInput("Home")
+    setAddressInput("")
+    setIsDefaultInput(false)
+    setShowForm(false)
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 pb-8">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 sticky top-0 z-10 px-4 py-3 flex items-center gap-3 shadow-sm">
+    <div className="min-h-screen bg-gray-50 pb-10">
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-30 px-4 py-3 flex items-center gap-3 shadow-sm">
         <button
           onClick={() => router.back()}
-          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
+          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors"
           aria-label="Go back"
         >
           <ChevronLeft className="w-5 h-5 text-gray-600" />
@@ -136,108 +129,113 @@ export default function AddressesPage() {
         <h1 className="text-lg font-bold text-gray-900">Saved Addresses</h1>
       </div>
 
-      <div className="px-4 py-4 space-y-3">
-        {loading ? (
-          <div className="py-16 text-center text-gray-400 text-sm">Loading…</div>
-        ) : addresses.length === 0 && !showForm ? (
-          <div className="py-16 text-center">
-            <MapPin className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-400 text-sm">No saved addresses yet</p>
+      <div className="px-4 py-5 space-y-4">
+        {loading && (
+          <div className="flex justify-center py-12">
+            <span className="w-6 h-6 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : (
-          addresses.map((addr) => (
-            <div
-              key={addr.id}
-              className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 flex items-start justify-between gap-3"
-            >
-              <div className="flex items-start gap-3 flex-1 min-w-0">
-                <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center shrink-0 mt-0.5">
-                  <MapPin className="w-4 h-4 text-orange-500" />
+        )}
+
+        {!loading && addresses.length === 0 && !showForm && (
+          <div className="bg-white rounded-2xl p-8 shadow-sm text-center">
+            <MapPin className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+            <p className="text-sm font-semibold text-gray-500 mb-1">No saved addresses</p>
+            <p className="text-xs text-gray-400">Add an address for faster checkout</p>
+          </div>
+        )}
+
+        {!loading && addresses.map((addr) => (
+          <div key={addr.id} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-semibold text-gray-900">{addr.label}</span>
+                  {addr.isDefault && (
+                    <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 rounded-full px-2 py-0.5 font-medium">
+                      <Star className="w-3 h-3" />
+                      Default
+                    </span>
+                  )}
                 </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <p className="font-semibold text-gray-900 text-sm">{addr.label}</p>
-                    {addr.isDefault && (
-                      <span className="text-xs bg-green-100 text-green-700 font-semibold px-1.5 py-0.5 rounded-full flex items-center gap-1">
-                        <Star className="w-2.5 h-2.5" /> Default
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-500 leading-snug">{addr.address}</p>
-                </div>
+                <p className="text-sm text-gray-500 leading-snug">{addr.address}</p>
               </div>
               <button
                 onClick={() => handleDelete(addr.id)}
-                disabled={deleting === addr.id}
-                className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors shrink-0"
-                aria-label="Delete address"
+                disabled={deletingId === addr.id}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-red-50 transition-colors disabled:opacity-50 shrink-0"
+                aria-label={`Delete ${addr.label}`}
               >
-                {deleting === addr.id
+                {deletingId === addr.id
                   ? <span className="w-3.5 h-3.5 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                  : <Trash2 className="w-3.5 h-3.5" />}
+                  : <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                }
               </button>
             </div>
-          ))
-        )}
+            {!addr.isDefault && (
+              <button
+                onClick={() => handleSetDefault(addr.id)}
+                className="mt-3 text-xs text-orange-600 font-semibold hover:text-orange-700 transition-colors flex items-center gap-1"
+              >
+                <Check className="w-3 h-3" />
+                Set as default
+              </button>
+            )}
+          </div>
+        ))}
 
-        {/* Add address form */}
-        {showForm ? (
+        {showForm && (
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-orange-100">
-            <div className="flex items-center justify-between mb-3">
-              <p className="font-semibold text-gray-900 text-sm">New Address</p>
-              <button onClick={() => setShowForm(false)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100">
-                <X className="w-4 h-4 text-gray-500" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">New Address</h2>
+            <form onSubmit={handleAdd} className="space-y-3">
               <input
                 type="text"
                 placeholder="Label (e.g. Home, Work)"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
+                value={labelInput}
+                onChange={(e) => setLabelInput(e.target.value)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
               />
               <textarea
                 rows={3}
                 placeholder="Full address…"
-                value={addressText}
-                onChange={(e) => setAddressText(e.target.value)}
+                value={addressInput}
+                onChange={(e) => setAddressInput(e.target.value)}
+                required
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
               />
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
-                  checked={isDefault}
-                  onChange={(e) => setIsDefault(e.target.checked)}
+                  checked={isDefaultInput}
+                  onChange={(e) => setIsDefaultInput(e.target.checked)}
                   className="w-4 h-4 accent-orange-500"
                 />
-                <span className="text-sm text-gray-700">Set as default address</span>
+                <span className="text-sm text-gray-600">Set as default address</span>
               </label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 pt-1">
                 <button
-                  onClick={handleAdd}
-                  disabled={saving || !addressText.trim()}
-                  className="flex-1 bg-orange-500 text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  type="submit"
+                  disabled={saving || !addressInput.trim()}
+                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white rounded-xl py-2.5 text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2 transition-colors"
                 >
-                  {saving
-                    ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    : <Check className="w-4 h-4" />}
-                  Save Address
+                  {saving && <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                  {saving ? "Saving…" : "Save Address"}
                 </button>
                 <button
-                  onClick={() => setShowForm(false)}
-                  className="px-4 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
+                  type="button"
+                  onClick={resetForm}
+                  className="flex-1 border border-gray-200 text-gray-600 rounded-xl py-2.5 text-sm font-semibold hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
               </div>
-            </div>
+            </form>
           </div>
-        ) : (
+        )}
+
+        {!showForm && !loading && (
           <button
             onClick={() => setShowForm(true)}
-            className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-orange-200 text-orange-500 rounded-2xl py-4 text-sm font-semibold hover:bg-orange-50 transition-colors"
+            className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-orange-200 text-orange-600 rounded-2xl py-3.5 font-semibold text-sm hover:bg-orange-50 transition-colors"
           >
             <Plus className="w-4 h-4" />
             Add New Address

@@ -75,6 +75,10 @@ export default function CheckoutPage() {
     orderType === "DELIVERY" ? "CASH" : "COUNTER"
   )
 
+  // Saved addresses (for DELIVERY autofill)
+  const [savedAddresses, setSavedAddresses] = useState<{ id: string; label: string; address: string; isDefault: boolean }[]>([])
+  const [showManualAddr, setShowManualAddr] = useState(false)
+
   // Placing
   const [placing, setPlacing] = useState(false)
 
@@ -103,6 +107,29 @@ export default function CheckoutPage() {
   // Reset payment method default when order type changes
   useEffect(() => {
     setPaymentMethod(orderType === "DELIVERY" ? "CASH" : "COUNTER")
+  }, [orderType])
+
+  // Fetch saved addresses when DELIVERY is selected and user is logged in
+  useEffect(() => {
+    if (orderType !== "DELIVERY") return
+    const auth = getCustomerAuth()
+    if (!auth?.token) return
+    fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1"}/customers/me/addresses`, {
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${auth.token}`,
+      },
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: { id: string; label: string; address: string; isDefault: boolean }[]) => {
+        setSavedAddresses(data ?? [])
+        // Auto-select the default address
+        const def = data?.find((a) => a.isDefault)
+        if (def && !deliveryAddress) {
+          setDeliveryAddress(def.address)
+        }
+      })
+      .catch(() => { /* non-fatal */ })
   }, [orderType])
 
   const subtotal = total()
@@ -371,13 +398,59 @@ export default function CheckoutPage() {
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
               Delivery Address
             </h2>
-            <textarea
-              rows={3}
-              placeholder="Enter your full delivery address…"
-              value={deliveryAddress ?? ""}
-              onChange={(e) => setDeliveryAddress(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-            />
+
+            {/* Saved addresses dropdown — shown when logged in and addresses exist */}
+            {savedAddresses.length > 0 && !showManualAddr && (
+              <div className="space-y-2 mb-3">
+                <p className="text-xs text-gray-400 font-medium">Saved addresses</p>
+                <div className="space-y-2">
+                  {savedAddresses.map((addr) => (
+                    <button
+                      key={addr.id}
+                      type="button"
+                      onClick={() => setDeliveryAddress(addr.address)}
+                      className={`w-full text-left rounded-xl border px-3 py-2.5 transition-colors ${
+                        deliveryAddress === addr.address
+                          ? "border-orange-500 bg-orange-50"
+                          : "border-gray-200 hover:border-orange-300"
+                      }`}
+                    >
+                      <p className="text-xs font-semibold text-gray-700">{addr.label}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 leading-snug">{addr.address}</p>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowManualAddr(true); setDeliveryAddress(null) }}
+                  className="text-xs text-orange-600 font-medium hover:text-orange-700 transition-colors"
+                >
+                  Use a different address →
+                </button>
+              </div>
+            )}
+
+            {/* Manual address textarea */}
+            {(savedAddresses.length === 0 || showManualAddr) && (
+              <>
+                {showManualAddr && (
+                  <button
+                    type="button"
+                    onClick={() => setShowManualAddr(false)}
+                    className="text-xs text-orange-600 font-medium hover:text-orange-700 transition-colors mb-2 block"
+                  >
+                    ← Use saved address
+                  </button>
+                )}
+                <textarea
+                  rows={3}
+                  placeholder="Enter your full delivery address…"
+                  value={deliveryAddress ?? ""}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+                />
+              </>
+            )}
           </div>
         )}
 

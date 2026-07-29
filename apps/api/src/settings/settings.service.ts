@@ -9,6 +9,7 @@ import { PrismaService } from "../prisma/prisma.service"
 import { UpdateRestaurantDto } from "./dto/update-restaurant.dto"
 import { CreateBranchDto, UpdateBranchDto } from "./dto/branch.dto"
 import { CreateStaffDto, UpdateStaffDto } from "./dto/staff.dto"
+import { UpdateOnlineSettingsDto } from "./dto/online-settings.dto"
 
 @Injectable()
 export class SettingsService {
@@ -138,7 +139,65 @@ export class SettingsService {
     return { success: true }
   }
 
+  // ── Online Settings ──────────────────────────────────────────────────────────
+
+  async getOnlineSettings(restaurantId: string) {
+    const settings = await this.prisma.restaurantOnlineSettings.findUnique({
+      where: { restaurantId },
+    })
+
+    if (settings) return this.serializeOnlineSettings(settings)
+
+    // Create defaults on first access
+    const created = await this.prisma.restaurantOnlineSettings.create({
+      data: { restaurantId },
+    })
+    return this.serializeOnlineSettings(created)
+  }
+
+  async updateOnlineSettings(restaurantId: string, dto: UpdateOnlineSettingsDto) {
+    const result = await this.prisma.restaurantOnlineSettings.upsert({
+      where: { restaurantId },
+      create: {
+        restaurantId,
+        ...(dto.onlineOrderingEnabled !== undefined && { onlineOrderingEnabled: dto.onlineOrderingEnabled }),
+        ...(dto.deliveryEnabled !== undefined && { deliveryEnabled: dto.deliveryEnabled }),
+        ...(dto.takeawayEnabled !== undefined && { takeawayEnabled: dto.takeawayEnabled }),
+        ...(dto.deliveryRadiusKm !== undefined && { deliveryRadiusKm: dto.deliveryRadiusKm }),
+        ...(dto.minOrderValue !== undefined && { minOrderValue: dto.minOrderValue }),
+        ...(dto.deliveryFee !== undefined && { deliveryFee: dto.deliveryFee }),
+        ...(dto.packagingFee !== undefined && { packagingFee: dto.packagingFee }),
+        ...(dto.serviceChargePercent !== undefined && { serviceChargePercent: dto.serviceChargePercent }),
+        ...(dto.estimatedPrepMins !== undefined && { estimatedPrepMins: dto.estimatedPrepMins }),
+        ...(dto.pickupPrepMins !== undefined && { pickupPrepMins: dto.pickupPrepMins }),
+      },
+      update: {
+        ...(dto.onlineOrderingEnabled !== undefined && { onlineOrderingEnabled: dto.onlineOrderingEnabled }),
+        ...(dto.deliveryEnabled !== undefined && { deliveryEnabled: dto.deliveryEnabled }),
+        ...(dto.takeawayEnabled !== undefined && { takeawayEnabled: dto.takeawayEnabled }),
+        ...(dto.deliveryRadiusKm !== undefined && { deliveryRadiusKm: dto.deliveryRadiusKm }),
+        ...(dto.minOrderValue !== undefined && { minOrderValue: dto.minOrderValue }),
+        ...(dto.deliveryFee !== undefined && { deliveryFee: dto.deliveryFee }),
+        ...(dto.packagingFee !== undefined && { packagingFee: dto.packagingFee }),
+        ...(dto.serviceChargePercent !== undefined && { serviceChargePercent: dto.serviceChargePercent }),
+        ...(dto.estimatedPrepMins !== undefined && { estimatedPrepMins: dto.estimatedPrepMins }),
+        ...(dto.pickupPrepMins !== undefined && { pickupPrepMins: dto.pickupPrepMins }),
+      },
+    })
+    return this.serializeOnlineSettings(result)
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  private serializeOnlineSettings(s: any) {
+    return {
+      ...s,
+      minOrderValue: Number(s.minOrderValue),
+      deliveryFee: Number(s.deliveryFee),
+      packagingFee: Number(s.packagingFee),
+      serviceChargePercent: Number(s.serviceChargePercent),
+    }
+  }
 
   private async assertBranchOwner(restaurantId: string, id: string) {
     const branch = await this.prisma.branch.findUnique({ where: { id } })

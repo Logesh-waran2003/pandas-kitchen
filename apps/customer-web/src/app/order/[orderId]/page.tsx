@@ -25,6 +25,8 @@ interface Order {
   total: number
   subtotal?: number
   tax?: number
+  orderType?: "DINE_IN" | "TAKEAWAY" | "DELIVERY"
+  pickupCode?: string | null
   items: OrderItem[]
   table?: { tableNumber: string } | null
   createdAt?: string
@@ -363,6 +365,22 @@ export default function OrderTrackerPage() {
 
           <StatusMessage status={order.status} />
         </div>
+
+        {/* Pickup code card — shown for TAKEAWAY when order is READY or PAID */}
+        {order.orderType === "TAKEAWAY" && order.pickupCode &&
+          (order.status === "READY" || order.status === "PAID") && (
+          <div className="bg-orange-50 border-2 border-orange-400 rounded-2xl p-5 text-center shadow-sm">
+            <p className="text-sm font-semibold text-orange-700 mb-2 uppercase tracking-wide">
+              Your Pickup Code
+            </p>
+            <p className="text-5xl font-black text-orange-600 tracking-widest mb-3">
+              {order.pickupCode}
+            </p>
+            <p className="text-sm text-orange-700">
+              Show this code at the counter to collect your order
+            </p>
+          </div>
+        )}
 
         {/* Items */}
         <div className="bg-white rounded-2xl p-5 shadow-sm">

@@ -11,6 +11,7 @@ import {
   IsArray,
   ValidateNested,
   ArrayMinSize,
+  IsDateString,
 } from "class-validator"
 import { Type } from "class-transformer"
 
@@ -101,6 +102,39 @@ export class CreateOrderDto {
   @IsInt()
   @Min(1)
   paxCount?: number
+
+  @ApiPropertyOptional({ example: "2026-08-01T18:30:00.000Z", description: "Scheduled delivery/pickup time" })
+  @IsOptional()
+  @IsDateString()
+  scheduledFor?: string
+
+  @ApiPropertyOptional({ example: 30, description: "Delivery fee in currency units" })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  deliveryFee?: number
+
+  @ApiPropertyOptional({ example: 10, description: "Packaging fee in currency units" })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  packagingFee?: number
+
+  @ApiPropertyOptional({ example: 20, description: "Tip amount in currency units" })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tip?: number
+
+  @ApiPropertyOptional({ example: "SUMMER20", description: "Coupon code to apply" })
+  @IsOptional()
+  @IsString()
+  couponCode?: string
+
+  @ApiPropertyOptional({ enum: ["POS", "QR_TABLE", "ONLINE"], default: "QR_TABLE" })
+  @IsOptional()
+  @IsEnum(["POS", "QR_TABLE", "ONLINE"])
+  orderSource?: "POS" | "QR_TABLE" | "ONLINE"
 
   @ApiProperty({ type: [OrderItemInputDto] })
   @IsArray()

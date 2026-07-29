@@ -12,7 +12,7 @@ import { KitchenService } from "../kitchen/kitchen.service"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
 import { EditOrderDto } from "./dto/edit-order.dto"
-import { OrderStatus, OrderType } from "@prisma/client"
+import { OrderStatus, OrderType, OrderSource } from "@prisma/client"
 import { Decimal } from "@prisma/client/runtime/library"
 
 @Injectable()
@@ -31,6 +31,8 @@ export class OrdersService {
     date?: string,
     page?: number,
     limit?: number,
+    orderType?: string,
+    orderSource?: string,
   ) {
     const pageNum = page && page > 0 ? page : 1
     const limitNum = Math.min(limit && limit > 0 ? limit : 20, 100)
@@ -40,6 +42,8 @@ export class OrdersService {
 
     if (branchId) where.branchId = branchId
     if (status) where.status = status as OrderStatus
+    if (orderType) where.orderType = orderType as OrderType
+    if (orderSource) where.orderSource = orderSource as OrderSource
 
     if (date) {
       const start = new Date(date)
@@ -88,14 +92,25 @@ export class OrdersService {
     if (!order) throw new NotFoundException("Order not found")
     if (order.customerId !== customerId) throw new ForbiddenException()
 
+    const readyStatuses: string[] = ["READY", "SERVED", "PAID"]
+    const showPickupCode =
+      order.orderType === OrderType.TAKEAWAY && readyStatuses.includes(order.status as string)
+
     return {
       id: order.id,
       orderNumber: order.orderNumber,
       status: order.status,
       orderType: order.orderType,
+      orderSource: order.orderSource,
       total: Number(order.total),
       subtotal: Number(order.subtotal),
       tax: Number(order.tax),
+      deliveryFee: Number(order.deliveryFee),
+      packagingFee: Number(order.packagingFee),
+      tip: Number(order.tip),
+      couponDiscount: Number(order.couponDiscount),
+      scheduledFor: order.scheduledFor,
+      pickupCode: showPickupCode ? order.pickupCode : null,
       createdAt: order.createdAt,
       items: order.items.map((i) => ({
         id: i.id,
@@ -235,7 +250,37 @@ export class OrdersService {
     const serviceChargeAmt = afterDiscount.mul(serviceChargeRate).toDecimalPlaces(2)
     const gstRate = new Decimal(dto.gstRate ?? 5)
     const gstAmt = afterDiscount.add(serviceChargeAmt).mul(gstRate.div(100)).toDecimalPlaces(2)
-    const total = afterDiscount.add(serviceChargeAmt).add(gstAmt)
+
+    const deliveryFee = new Decimal(dto.deliveryFee ?? 0)
+    const packagingFee = new Decimal(dto.packagingFee ?? 0)
+    const tip = new Decimal(dto.tip ?? 0)
+
+    // Validate coupon if provided
+    let couponRecord: any = null
+    let couponDiscount = new Decimal(0)
+    if (dto.couponCode) {
+      const result = await this.validateCoupon(restaurantId, dto.couponCode, Number(subtotal))
+      if (!result.valid) {
+        throw new BadRequestException(result.message)
+      }
+      couponRecord = result.coupon
+      couponDiscount = new Decimal(result.discountAmount)
+    }
+
+    const total = afterDiscount
+      .add(serviceChargeAmt)
+      .add(gstAmt)
+      .add(deliveryFee)
+      .add(packagingFee)
+      .add(tip)
+      .sub(couponDiscount)
+      .toDecimalPlaces(2)
+
+    // Generate pickup code for TAKEAWAY orders
+    const pickupCode =
+      dto.orderType === OrderType.TAKEAWAY
+        ? Array.from({ length: 6 }, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random() * 36)]).join("")
+        : null
 
     // Generate order number — timestamp + 8 hex chars of UUID randomness (BUG-07).
     // Collision probability is effectively zero; retry once on the rare P2002 just in case.
@@ -252,9 +297,11 @@ export class OrdersService {
             customerId: dto.customerId ?? null,
             orderNumber,
             orderType: dto.orderType ?? OrderType.DINE_IN,
+            orderSource: (dto.orderSource as OrderSource) ?? OrderSource.QR_TABLE,
             paxCount: dto.paxCount ?? 1,
             notes: dto.notes,
             deliveryAddress: dto.deliveryAddress ?? null,
+            scheduledFor: dto.scheduledFor ? new Date(dto.scheduledFor) : null,
             subtotal,
             tax: gstAmt,
             discount: discountAmt,
@@ -262,8 +309,14 @@ export class OrdersService {
             serviceCharge: serviceChargeAmt,
             gstRate,
             gstAmount: gstAmt,
+            deliveryFee,
+            packagingFee,
+            tip,
+            couponId: couponRecord?.id ?? null,
+            couponDiscount,
             total,
             paymentStatus: "UNPAID",
+            pickupCode,
             createdById: userId || null,
             items: {
               create: lineItems.map((l) => ({
@@ -296,6 +349,21 @@ export class OrdersService {
             },
           },
         })
+
+        // Create CouponUsage record if coupon was applied
+        if (couponRecord) {
+          await tx.couponUsage.create({
+            data: {
+              couponId: couponRecord.id,
+              customerId: dto.customerId ?? null,
+              orderId: created.id,
+            },
+          })
+          await tx.coupon.update({
+            where: { id: couponRecord.id },
+            data: { usedCount: { increment: 1 } },
+          })
+        }
 
         if (dto.customerId) {
           await tx.customer.update({
@@ -342,6 +410,38 @@ export class OrdersService {
     this.kitchenService.generateKOTsForOrder(order.id, order.branchId).catch(() => {})
 
     return this.serializeOrder(order)
+  }
+
+  async validateCoupon(restaurantId: string, code: string, subtotal: number) {
+    const coupon = await this.prisma.coupon.findUnique({
+      where: { restaurantId_code: { restaurantId, code } },
+    })
+
+    if (!coupon) return { valid: false, coupon: null, discountAmount: 0, message: "Coupon not found" }
+    if (!coupon.isActive) return { valid: false, coupon: null, discountAmount: 0, message: "Coupon is inactive" }
+    if (coupon.expiresAt && coupon.expiresAt < new Date()) {
+      return { valid: false, coupon: null, discountAmount: 0, message: "Coupon has expired" }
+    }
+    if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
+      return { valid: false, coupon: null, discountAmount: 0, message: "Coupon usage limit reached" }
+    }
+    if (subtotal < Number(coupon.minOrderValue)) {
+      return {
+        valid: false,
+        coupon: null,
+        discountAmount: 0,
+        message: `Minimum order value of ${Number(coupon.minOrderValue)} required`,
+      }
+    }
+
+    let discountAmount: number
+    if (coupon.discountType === "PERCENT") {
+      discountAmount = Math.min((subtotal * Number(coupon.discountValue)) / 100, subtotal)
+    } else {
+      discountAmount = Math.min(Number(coupon.discountValue), subtotal)
+    }
+
+    return { valid: true, coupon, discountAmount, message: "Coupon applied" }
   }
 
   async updateStatus(restaurantId: string, id: string, dto: UpdateOrderStatusDto) {

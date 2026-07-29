@@ -29,6 +29,8 @@ model Restaurant {
   inventoryItems  InventoryItem[]
   shifts          Shift[]
   reservations    Reservation[]
+  coupons         Coupon[]
+  onlineSettings  RestaurantOnlineSettings?
 }
 
 model Branch {
@@ -208,20 +210,22 @@ model Table {
 }
 
 model Customer {
-  id            String     @id @default(cuid())
+  id            String            @id @default(cuid())
   restaurantId  String
   name          String
   phone         String
   email         String?
   address       String?
-  loyaltyPoints Int        @default(0)
-  totalOrders   Int        @default(0)
-  totalSpent    Decimal    @db.Decimal(10, 2) @default(0)
-  isActive      Boolean    @default(true)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  restaurant    Restaurant @relation(fields: [restaurantId], references: [id])
+  passwordHash  String?
+  loyaltyPoints Int               @default(0)
+  totalOrders   Int               @default(0)
+  totalSpent    Decimal           @db.Decimal(10, 2) @default(0)
+  isActive      Boolean           @default(true)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  restaurant    Restaurant        @relation(fields: [restaurantId], references: [id])
   orders        Order[]
+  addresses     CustomerAddress[]
 
   @@unique([restaurantId, phone])
   @@index([restaurantId])
@@ -252,6 +256,14 @@ model Order {
   rating          Int?
   deliveryAddress String?
   createdById     String?
+  pickupCode      String?
+  scheduledFor    DateTime?
+  deliveryFee     Decimal     @default(0) @db.Decimal(10, 2)
+  packagingFee    Decimal     @default(0) @db.Decimal(10, 2)
+  tip             Decimal     @default(0) @db.Decimal(10, 2)
+  couponId        String?
+  couponDiscount  Decimal     @default(0) @db.Decimal(10, 2)
+  orderSource     OrderSource @default(QR_TABLE)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   restaurant    Restaurant  @relation(fields: [restaurantId], references: [id])
@@ -261,6 +273,7 @@ model Order {
   items         OrderItem[]
   payments      Payment[]
   kotTickets    KOTTicket[]
+  coupon        CouponUsage?
 
   @@index([restaurantId, status])
   @@index([restaurantId, createdAt])
@@ -518,4 +531,80 @@ enum ReservationStatus {
   COMPLETED
   CANCELLED
   NO_SHOW
+}
+
+enum DiscountType {
+  PERCENT
+  FLAT
+}
+
+enum OrderSource {
+  POS
+  QR_TABLE
+  ONLINE
+}
+
+model CustomerAddress {
+  id           String   @id @default(cuid())
+  customerId   String
+  label        String   @default("Home")
+  address      String
+  lat          Float?
+  lng          Float?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model Coupon {
+  id             String        @id @default(cuid())
+  restaurantId   String
+  code           String
+  discountType   DiscountType  @default(PERCENT)
+  discountValue  Decimal       @db.Decimal(10, 2)
+  minOrderValue  Decimal       @default(0) @db.Decimal(10, 2)
+  maxUses        Int?
+  usedCount      Int           @default(0)
+  expiresAt      DateTime?
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  restaurant     Restaurant    @relation(fields: [restaurantId], references: [id])
+  usages         CouponUsage[]
+
+  @@unique([restaurantId, code])
+  @@index([restaurantId])
+}
+
+model CouponUsage {
+  id         String   @id @default(cuid())
+  couponId   String
+  customerId String?
+  orderId    String   @unique
+  usedAt     DateTime @default(now())
+  coupon     Coupon   @relation(fields: [couponId], references: [id])
+  order      Order    @relation(fields: [orderId], references: [id])
+
+  @@index([couponId])
+}
+
+model RestaurantOnlineSettings {
+  id                    String     @id @default(cuid())
+  restaurantId          String     @unique
+  onlineOrderingEnabled Boolean    @default(true)
+  deliveryEnabled       Boolean    @default(true)
+  takeawayEnabled       Boolean    @default(true)
+  deliveryRadiusKm      Float      @default(10)
+  minOrderValue         Decimal    @default(0) @db.Decimal(10, 2)
+  deliveryFee           Decimal    @default(0) @db.Decimal(10, 2)
+  packagingFee          Decimal    @default(0) @db.Decimal(10, 2)
+  serviceChargePercent  Decimal    @default(0) @db.Decimal(5, 2)
+  estimatedPrepMins     Int        @default(20)
+  pickupPrepMins        Int        @default(15)
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  restaurant            Restaurant @relation(fields: [restaurantId], references: [id])
 }

@@ -12,9 +12,11 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from "@nestjs/swagger"
 import { SettingsService } from "./settings.service"
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard"
 import { CurrentUser } from "../auth/decorators/current-user.decorator"
+import { Public } from "../auth/decorators/public.decorator"
 import { UpdateRestaurantDto } from "./dto/update-restaurant.dto"
 import { CreateBranchDto, UpdateBranchDto } from "./dto/branch.dto"
 import { CreateStaffDto, UpdateStaffDto } from "./dto/staff.dto"
+import { UpdateOnlineSettingsDto } from "./dto/online-settings.dto"
 
 @ApiTags("settings")
 @ApiBearerAuth()
@@ -101,5 +103,23 @@ export class SettingsController {
     @Param("id") id: string,
   ) {
     return this.settingsService.deleteStaff(restaurantId, id)
+  }
+
+  // ── Online Settings ──────────────────────────────────────────────────────────
+
+  @Public()
+  @Get(":restaurantId/online-settings")
+  @ApiOperation({ summary: "Public: get online ordering settings for a restaurant" })
+  getOnlineSettings(@Param("restaurantId") restaurantId: string) {
+    return this.settingsService.getOnlineSettings(restaurantId)
+  }
+
+  @Patch(":restaurantId/online-settings")
+  @ApiOperation({ summary: "Admin: update online ordering settings" })
+  updateOnlineSettings(
+    @Param("restaurantId") restaurantId: string,
+    @Body() dto: UpdateOnlineSettingsDto,
+  ) {
+    return this.settingsService.updateOnlineSettings(restaurantId, dto)
   }
 }

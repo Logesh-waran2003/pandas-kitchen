@@ -33,6 +33,18 @@ export class OrdersController {
   }
 
   @Public()
+  @Get("coupon/:restaurantId/:code")
+  @ApiOperation({ summary: "Public: validate a coupon code" })
+  @ApiQuery({ name: "subtotal", required: false, description: "Order subtotal for min-value check" })
+  validateCoupon(
+    @Param("restaurantId") restaurantId: string,
+    @Param("code") code: string,
+    @Query("subtotal") subtotal?: string,
+  ) {
+    return this.ordersService.validateCoupon(restaurantId, code, subtotal ? Number(subtotal) : 0)
+  }
+
+  @Public()
   @Patch(":id/rating")
   @ApiOperation({ summary: "Customer: submit star rating for a served order" })
   submitRating(
@@ -60,6 +72,8 @@ export class OrdersController {
   @ApiQuery({ name: "date", required: false, description: "YYYY-MM-DD" })
   @ApiQuery({ name: "page", required: false, description: "Page number (default: 1)" })
   @ApiQuery({ name: "limit", required: false, description: "Items per page (default: 20, max: 100)" })
+  @ApiQuery({ name: "orderType", required: false, enum: ["DINE_IN", "TAKEAWAY", "DELIVERY"] })
+  @ApiQuery({ name: "orderSource", required: false, enum: ["POS", "QR_TABLE", "ONLINE"] })
   listOrders(
     @CurrentUser("restaurantId") restaurantId: string,
     @Query("branchId") branchId?: string,
@@ -67,6 +81,8 @@ export class OrdersController {
     @Query("date") date?: string,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
+    @Query("orderType") orderType?: string,
+    @Query("orderSource") orderSource?: string,
   ) {
     return this.ordersService.listOrders(
       restaurantId,
@@ -75,6 +91,8 @@ export class OrdersController {
       date,
       page ? Number(page) : undefined,
       limit ? Number(limit) : undefined,
+      orderType,
+      orderSource,
     )
   }
 

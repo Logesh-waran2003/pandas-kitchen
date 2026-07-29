@@ -2,8 +2,9 @@
 import { useEffect, useState, useRef } from "react"
 import { useParams } from "next/navigation"
 import { toast } from "sonner"
-import { CheckCircle, Clock, ChefHat, Bell, Utensils, HelpCircle, PartyPopper, XCircle } from "lucide-react"
+import { CheckCircle, Clock, ChefHat, Bell, Utensils, HelpCircle, PartyPopper, XCircle, BellRing, Receipt } from "lucide-react"
 import { connectSocket, disconnectSocket } from "@/lib/socket"
+import { useCartStore } from "@/stores/cart.store"
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "SERVED" | "CANCELLED"
 
@@ -86,7 +87,13 @@ export default function OrderTrackerPage() {
   const [cancelled, setCancelled] = useState(false)
   const [cancelSecondsLeft, setCancelSecondsLeft] = useState(0)
   const [cancelling, setCancelling] = useState(false)
+  const [waiterSent, setWaiterSent] = useState(false)
+  const [billSent, setBillSent] = useState(false)
   const cancelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const socketRef = useRef<ReturnType<typeof connectSocket> | null>(null)
+
+  const tableId = useCartStore((s) => s.tableId)
+  const branchId = useCartStore((s) => s.branchId)
 
   // ── Load order from localStorage ─────────────────────────────────────────
   useEffect(() => {
@@ -123,6 +130,7 @@ export default function OrderTrackerPage() {
     if (!token) return
 
     const socket = connectSocket(token)
+    socketRef.current = socket
 
     socket.on("connect", () => { socket.emit("join:order", orderId) })
 
@@ -153,8 +161,32 @@ export default function OrderTrackerPage() {
       socket.off("payment.completed")
       socket.off("order.cancelled")
       disconnectSocket()
+      socketRef.current = null
     }
   }, [orderId])
+
+  // ── Call waiter / request bill ────────────────────────────────────────────
+  function handleCallWaiter() {
+    if (!tableId || !branchId || !socketRef.current) return
+    socketRef.current.emit("table:call-waiter", {
+      tableId,
+      tableNumber: order?.table?.tableNumber ?? tableId,
+      branchId,
+    })
+    setWaiterSent(true)
+    setTimeout(() => setWaiterSent(false), 2000)
+  }
+
+  function handleRequestBill() {
+    if (!tableId || !branchId || !socketRef.current) return
+    socketRef.current.emit("table:request-bill", {
+      tableId,
+      tableNumber: order?.table?.tableNumber ?? tableId,
+      branchId,
+    })
+    setBillSent(true)
+    setTimeout(() => setBillSent(false), 2000)
+  }
 
   // ── Cancel handler ────────────────────────────────────────────────────────
   async function handleCancel() {
@@ -361,6 +393,28 @@ export default function OrderTrackerPage() {
           >
             🧾 View Receipt
           </a>
+        )}
+
+        {/* Call Waiter + Request Bill */}
+        {tableId && branchId && (
+          <div className="flex gap-3">
+            <button
+              onClick={handleCallWaiter}
+              className="flex-1 flex items-center justify-center gap-2 border-2 border-orange-200 text-orange-600 rounded-2xl py-3.5 font-semibold text-sm bg-white active:bg-orange-50 transition-colors"
+              aria-label="Call waiter"
+            >
+              <BellRing className="w-4 h-4" />
+              {waiterSent ? "Sent!" : "Call Waiter"}
+            </button>
+            <button
+              onClick={handleRequestBill}
+              className="flex-1 flex items-center justify-center gap-2 border-2 border-orange-200 text-orange-600 rounded-2xl py-3.5 font-semibold text-sm bg-white active:bg-orange-50 transition-colors"
+              aria-label="Request bill"
+            >
+              <Receipt className="w-4 h-4" />
+              {billSent ? "Sent!" : "Request Bill"}
+            </button>
+          </div>
         )}
 
         {/* Help */}

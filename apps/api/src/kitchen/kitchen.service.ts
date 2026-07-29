@@ -73,7 +73,10 @@ export class KitchenService {
         items: {
           include: {
             orderItem: {
-              include: { menuItem: { select: { id: true, name: true } } },
+              select: {
+                notes: true,
+                menuItem: { select: { id: true, name: true } },
+              },
             },
             department: { select: { id: true, name: true } },
           },

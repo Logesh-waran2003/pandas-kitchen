@@ -64,6 +64,7 @@ export default function MenuPage() {
   const [items, setItems] = useState<MenuItem[]>([])
   const [search, setSearch] = useState("")
   const [activeCat, setActiveCat] = useState<string | null>(null)
+  const [vegOnly, setVegOnly] = useState(false)
   const [loading, setLoading] = useState(true)
   const [variantItem, setVariantItem] = useState<MenuItem | null>(null)
   const [variants, setVariants] = useState<Variant[]>([])
@@ -146,7 +147,8 @@ export default function MenuPage() {
   const filtered = items.filter((i) => {
     const matchCat = !activeCat || i.categoryId === activeCat
     const matchSearch = !search || i.name.toLowerCase().includes(search.toLowerCase())
-    return matchCat && matchSearch && i.isAvailable
+    const matchVeg = !vegOnly || i.isVeg === true
+    return matchCat && matchSearch && matchVeg && i.isAvailable
   })
 
   async function handleAddItem(item: MenuItem) {
@@ -351,7 +353,7 @@ export default function MenuPage() {
         </div>
       </div>
 
-      {/* Category tabs */}
+      {/* Category tabs + veg filter */}
       <div className="bg-white border-b border-gray-100 px-4 py-2 flex gap-2 overflow-x-auto scrollbar-hide">
         <button
           onClick={() => setActiveCat(null)}
@@ -372,6 +374,17 @@ export default function MenuPage() {
             {c.name}
           </button>
         ))}
+        <button
+          onClick={() => setVegOnly((v) => !v)}
+          className={`shrink-0 ml-auto flex items-center gap-1 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            vegOnly ? "bg-green-500 text-white" : "bg-gray-100 text-gray-600"
+          }`}
+          aria-pressed={vegOnly}
+          aria-label="Veg only filter"
+        >
+          <Leaf className="w-3.5 h-3.5" />
+          Veg
+        </button>
       </div>
 
       {/* Menu items grid */}

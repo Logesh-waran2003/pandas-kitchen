@@ -15,6 +15,7 @@ interface KotItem {
   name: string
   quantity: number
   status: "PENDING" | "IN_PROGRESS" | "DONE"
+  notes?: string | null
   department?: { id: string; name: string }
 }
 interface Kot {
@@ -25,6 +26,24 @@ interface Kot {
   status: "PENDING" | "IN_PROGRESS" | "COMPLETED"
   createdAt: string
   items: KotItem[]
+}
+
+// ─── KDS audio alert ─────────────────────────────────────────────────────────
+
+function playKDSAlert() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const oscillator = ctx.createOscillator()
+    const gainNode = ctx.createGain()
+    oscillator.connect(gainNode)
+    gainNode.connect(ctx.destination)
+    oscillator.frequency.value = 880
+    oscillator.type = "sine"
+    gainNode.gain.setValueAtTime(0.3, ctx.currentTime)
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
+    oscillator.start(ctx.currentTime)
+    oscillator.stop(ctx.currentTime + 0.4)
+  } catch (e) {}
 }
 
 // ─── Dept color ───────────────────────────────────────────────────────────────
@@ -146,7 +165,12 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
               <span className="text-xs font-semibold bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full shrink-0">
                 ×{item.quantity}
               </span>
-              <span className="text-sm text-gray-800 truncate">{item.name}</span>
+              <div className="min-w-0">
+                <span className="text-sm text-gray-800 truncate block">{item.name}</span>
+                {item.notes && (
+                  <p className="text-xs text-gray-400 italic">"{item.notes}"</p>
+                )}
+              </div>
             </div>
             {item.status === "DONE" ? (
               <Check className="w-4 h-4 text-green-500 shrink-0" />
@@ -344,6 +368,7 @@ export default function KitchenPage() {
     function onConnect() {
       setSocketConnected(true)
       socket.emit("join:kitchen", selectedBranchId)
+      socket.emit("join:branch", selectedBranchId)
     }
 
     function onDisconnect() {
@@ -351,6 +376,7 @@ export default function KitchenPage() {
     }
 
     function onKotCreated(newKot: Kot) {
+      playKDSAlert()
       const deptId = activeDeptRef.current
       if (deptId) {
         // Only prepend if the new KOT has at least one item in the active department
@@ -368,21 +394,34 @@ export default function KitchenPage() {
       )
     }
 
+    function onWaiterCalled(data: { tableNumber: string }) {
+      toast.info(`🔔 Table ${data.tableNumber} called a waiter`)
+    }
+
+    function onBillRequested(data: { tableNumber: string }) {
+      toast.info(`💳 Table ${data.tableNumber} requested the bill`)
+    }
+
     if (socket.connected) {
       setSocketConnected(true)
       socket.emit("join:kitchen", selectedBranchId)
+      socket.emit("join:branch", selectedBranchId)
     }
 
     socket.on("connect", onConnect)
     socket.on("disconnect", onDisconnect)
     socket.on("kot.created", onKotCreated)
     socket.on("kot.status_changed", onKotStatusChanged)
+    socket.on("waiter:called", onWaiterCalled)
+    socket.on("bill:requested", onBillRequested)
 
     return () => {
       socket.off("connect", onConnect)
       socket.off("disconnect", onDisconnect)
       socket.off("kot.created", onKotCreated)
       socket.off("kot.status_changed", onKotStatusChanged)
+      socket.off("waiter:called", onWaiterCalled)
+      socket.off("bill:requested", onBillRequested)
     }
   }, [accessToken, selectedBranchId])
 

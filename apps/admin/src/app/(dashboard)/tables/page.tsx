@@ -331,6 +331,14 @@ export default function TablesPage() {
       );
     });
 
+    socket.on("waiter:called", (data: { tableNumber: string }) => {
+      toast.info(`🔔 Table ${data.tableNumber} called a waiter`);
+    });
+
+    socket.on("bill:requested", (data: { tableNumber: string }) => {
+      toast.info(`💳 Table ${data.tableNumber} requested the bill`);
+    });
+
     return () => {
       disconnectSocket();
     };
@@ -366,6 +374,22 @@ export default function TablesPage() {
 
   useEffect(() => {
     if (selectedBranchId) fetchTables(selectedBranchId);
+  }, [selectedBranchId]);
+
+  // Join the branch socket room whenever selectedBranchId changes
+  useEffect(() => {
+    if (!selectedBranchId) return;
+    let token: string | null = null;
+    try {
+      const raw = localStorage.getItem("pandas-auth");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        token = parsed?.state?.accessToken ?? null;
+      }
+    } catch { /* ignore */ }
+    if (!token) return;
+    const socket = getSocket(token);
+    socket.emit("join:branch", selectedBranchId);
   }, [selectedBranchId]);
 
   async function handleStatusChange(table: RestaurantTable, status: TableStatus) {

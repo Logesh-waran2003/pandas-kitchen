@@ -88,6 +88,28 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return { joined: `order:${orderId}` }
   }
 
+  @SubscribeMessage("table:call-waiter")
+  handleCallWaiter(
+    @MessageBody() payload: { tableId: string; tableNumber: string; branchId: string },
+    @ConnectedSocket() _client: Socket,
+  ) {
+    this.server.to(`branch:${payload.branchId}`).emit("waiter:called", {
+      tableId: payload.tableId,
+      tableNumber: payload.tableNumber,
+    })
+  }
+
+  @SubscribeMessage("table:request-bill")
+  handleRequestBill(
+    @MessageBody() payload: { tableId: string; tableNumber: string; branchId: string },
+    @ConnectedSocket() _client: Socket,
+  ) {
+    this.server.to(`branch:${payload.branchId}`).emit("bill:requested", {
+      tableId: payload.tableId,
+      tableNumber: payload.tableNumber,
+    })
+  }
+
   // ── Emit helpers (called by services) ─────────────────────────────────────
 
   emitToKitchen(branchId: string, event: string, payload: any) {

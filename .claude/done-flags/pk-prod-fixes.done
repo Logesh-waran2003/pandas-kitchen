@@ -1,0 +1,18 @@
+FIX-1: Body size limit (SEC-03) — apps/api/src/main.ts
+  - Disabled built-in bodyParser, added express.json/urlencoded with limit: "1mb"
+
+FIX-2: Order number generation (BUG-07) — apps/api/src/orders/orders.service.ts
+  - Replaced Math.random().toString(36) with randomUUID() 8-char hex slice
+  - Added import { randomUUID } from "crypto"
+
+FIX-3: Periodic session cleanup (BUG-08) — apps/api/src/auth/auth.service.ts
+  - AuthService now implements OnModuleInit
+  - cleanExpiredSessions() runs on startup + every 24 h via setInterval
+
+FIX-4: ValidationPipe tightened — apps/api/src/main.ts
+  - forbidNonWhitelisted: false → true
+
+FIX-5: .env.example created — apps/api/.env.example
+  - All required env vars listed with placeholder values
+
+tsc --noEmit: EXIT 0 (no type errors)

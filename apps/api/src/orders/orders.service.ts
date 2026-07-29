@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   BadRequestException,
 } from "@nestjs/common"
+import { randomUUID } from "crypto"
 import { PrismaService } from "../prisma/prisma.service"
 import { EventsGateway } from "../events/events.gateway"
 import { InventoryService } from "../inventory/inventory.service"
@@ -235,10 +236,10 @@ export class OrdersService {
     const gstAmt = afterDiscount.add(serviceChargeAmt).mul(gstRate.div(100)).toDecimalPlaces(2)
     const total = afterDiscount.add(serviceChargeAmt).add(gstAmt)
 
-    // Generate order number — timestamp + base-36 suffix for low collision probability.
-    // Retry once on the rare P2002 unique constraint violation.
+    // Generate order number — timestamp + 8 hex chars of UUID randomness (BUG-07).
+    // Collision probability is effectively zero; retry once on the rare P2002 just in case.
     const genNumber = () =>
-      `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+      `ORD-${Date.now()}-${randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase()}`
 
     const runTransaction = async (orderNumber: string) =>
       this.prisma.$transaction(async (tx) => {

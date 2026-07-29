@@ -1,17 +1,23 @@
 import { NestFactory } from "@nestjs/core"
 import { ValidationPipe } from "@nestjs/common"
 import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger"
+import * as express from "express"
 import { AppModule } from "./app.module"
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter"
 import { PrismaExceptionFilter } from "./common/filters/prisma-exception.filter"
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  // Disable built-in body parser so we can enforce a size limit
+  const app = await NestFactory.create(AppModule, { bodyParser: false })
+
+  // Limit request bodies to 1 MB to prevent DOS via large payloads (SEC-03)
+  app.use(express.json({ limit: "1mb" }))
+  app.use(express.urlencoded({ extended: true, limit: "1mb" }))
 
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: false,
+      forbidNonWhitelisted: true,
       transform: true,
       transformOptions: { enableImplicitConversion: true },
     }),

@@ -136,6 +136,21 @@ export class CreateOrderDto {
   @IsEnum(["POS", "QR_TABLE", "ONLINE"])
   orderSource?: "POS" | "QR_TABLE" | "ONLINE"
 
+  @ApiPropertyOptional({ example: "John Doe", description: "Customer name for takeaway/delivery" })
+  @IsOptional()
+  @IsString()
+  customerName?: string
+
+  @ApiPropertyOptional({ example: "9876543210", description: "Customer phone for takeaway/delivery" })
+  @IsOptional()
+  @IsString()
+  customerPhone?: string
+
+  @ApiPropertyOptional({ example: "john@example.com" })
+  @IsOptional()
+  @IsString()
+  customerEmail?: string
+
   @ApiProperty({ type: [OrderItemInputDto] })
   @IsArray()
   @ArrayMinSize(1)

@@ -187,6 +187,30 @@ export class SettingsService {
     return this.serializeOnlineSettings(result)
   }
 
+  // ── Public restaurant info ───────────────────────────────────────────────────
+
+  async getPublicRestaurantInfo(slug: string) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        logoUrl: true,
+        themeColor: true,
+        isActive: true,
+        branches: {
+          where: { isActive: true },
+          select: { id: true, name: true },
+          take: 1,
+        },
+        onlineSettings: true,
+      },
+    })
+    if (!restaurant) throw new NotFoundException("Restaurant not found")
+    return restaurant
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
   private serializeOnlineSettings(s: any) {

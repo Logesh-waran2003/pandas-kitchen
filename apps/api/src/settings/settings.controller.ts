@@ -105,6 +105,15 @@ export class SettingsController {
     return this.settingsService.deleteStaff(restaurantId, id)
   }
 
+  // ── Public restaurant info ───────────────────────────────────────────────────
+
+  @Public()
+  @Get("restaurant/:slug/public")
+  @ApiOperation({ summary: "Public: get restaurant info by slug" })
+  getPublicRestaurantInfo(@Param("slug") slug: string) {
+    return this.settingsService.getPublicRestaurantInfo(slug)
+  }
+
   // ── Online Settings ──────────────────────────────────────────────────────────
 
   @Public()

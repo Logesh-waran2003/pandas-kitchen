@@ -178,6 +178,56 @@ export class AnalyticsService {
     return new Date(startIST.getTime() - IST_OFFSET)
   }
 
+  async getOnlineOrderStats(restaurantId: string, branchId?: string, date?: string) {
+    const targetDate = date ? new Date(date) : new Date()
+    const start = this.startOfDayIST(targetDate)
+    const end = this.endOfDayIST(targetDate)
+
+    const baseWhere: any = {
+      restaurantId,
+      orderSource: "ONLINE",
+      status: { not: "CANCELLED" },
+      createdAt: { gte: start, lte: end },
+    }
+    if (branchId) baseWhere.branchId = branchId
+
+    const [onlineOrders, takeawayOrders, deliveryOrders, revenueAgg, pendingOnline] =
+      await Promise.all([
+        this.prisma.order.count({ where: baseWhere }),
+        this.prisma.order.count({
+          where: { ...baseWhere, orderType: "TAKEAWAY" },
+        }),
+        this.prisma.order.count({
+          where: { ...baseWhere, orderType: "DELIVERY" },
+        }),
+        this.prisma.order.aggregate({
+          where: baseWhere,
+          _sum: { total: true },
+          _avg: { total: true },
+        }),
+        this.prisma.order.count({
+          where: {
+            restaurantId,
+            orderSource: "ONLINE",
+            status: "PENDING",
+            ...(branchId ? { branchId } : {}),
+          },
+        }),
+      ])
+
+    const onlineRevenue = Number(revenueAgg._sum.total ?? 0)
+    const avgOnlineOrderValue = Number(revenueAgg._avg.total ?? 0)
+
+    return {
+      onlineOrders,
+      takeawayOrders,
+      deliveryOrders,
+      onlineRevenue,
+      avgOnlineOrderValue,
+      pendingOnline,
+    }
+  }
+
   // ── Reports ────────────────────────────────────────────────────────────────
 
   async getReport(restaurantId: string, type: string, from: string, to: string, branchId?: string) {

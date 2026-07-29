@@ -69,7 +69,16 @@ export class KitchenService {
     const tickets = await this.prisma.kOTTicket.findMany({
       where,
       include: {
-        order: { select: { id: true, orderNumber: true } },
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            orderType: true,
+            orderSource: true,
+            scheduledFor: true,
+            pickupCode: true,
+          },
+        },
         items: {
           include: {
             orderItem: {
@@ -167,7 +176,16 @@ export class KitchenService {
           },
         },
         include: {
-          order: { select: { id: true, orderNumber: true } },
+          order: {
+            select: {
+              id: true,
+              orderNumber: true,
+              orderType: true,
+              orderSource: true,
+              scheduledFor: true,
+              pickupCode: true,
+            },
+          },
           items: {
             include: {
               orderItem: {
@@ -213,7 +231,16 @@ export class KitchenService {
         },
       },
       include: {
-        order: { select: { id: true, orderNumber: true } },
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            orderType: true,
+            orderSource: true,
+            scheduledFor: true,
+            pickupCode: true,
+          },
+        },
         items: {
           include: {
             orderItem: {

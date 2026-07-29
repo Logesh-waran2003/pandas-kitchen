@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react"
 import { apiFetch } from "@/lib/api"
 import { timeElapsed } from "@/lib/utils"
 import { toast } from "sonner"
-import { RefreshCw, ChefHat, Check } from "lucide-react"
+import { RefreshCw, ChefHat, Check, ShoppingBag, Truck, Clock } from "lucide-react"
 import { getSocket } from "@/lib/socket"
 import { useAuthStore } from "@/stores/auth.store"
 
@@ -26,6 +26,14 @@ interface Kot {
   status: "PENDING" | "IN_PROGRESS" | "COMPLETED"
   createdAt: string
   items: KotItem[]
+  order?: {
+    id: string
+    orderNumber: string
+    orderType?: "DINE_IN" | "TAKEAWAY" | "DELIVERY"
+    orderSource?: "POS" | "ONLINE"
+    scheduledFor?: string | null
+    pickupCode?: string | null
+  }
 }
 
 // ─── KDS audio alert ─────────────────────────────────────────────────────────
@@ -106,6 +114,13 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
   const ageMin = getKotAgeMinutes(kot.createdAt)
   const borderColor = deptColor(kot.items[0]?.department?.name)
 
+  const orderType = kot.order?.orderType
+  const orderSource = kot.order?.orderSource
+  const scheduledFor = kot.order?.scheduledFor
+  const isScheduled = !!scheduledFor
+  const isScheduledFuture =
+    isScheduled && new Date(scheduledFor!).getTime() - Date.now() > 10 * 60_000
+
   async function handleStatusChange(status: "IN_PROGRESS" | "COMPLETED") {
     setActionLoading(true)
     try {
@@ -137,14 +152,28 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
     }
   }
 
-  const ageBg = ageMin >= 20 ? "bg-red-50" : ageMin >= 10 ? "bg-yellow-50" : "bg-white"
-  const ageBorderColor = ageMin >= 20 ? "#f87171" : ageMin >= 10 ? "#facc15" : borderColor
+  const ageBg = isScheduledFuture
+    ? "bg-purple-50"
+    : ageMin >= 20
+    ? "bg-red-50"
+    : ageMin >= 10
+    ? "bg-yellow-50"
+    : "bg-white"
+  const ageBorderColor = isScheduledFuture
+    ? "#a855f7"
+    : ageMin >= 20
+    ? "#f87171"
+    : ageMin >= 10
+    ? "#facc15"
+    : borderColor
 
   return (
     <div
       className={`${ageBg} rounded-xl border shadow-sm p-3 space-y-2 ${
         isNew
           ? "animate-pulse border-orange-400 ring-2 ring-orange-400"
+          : isScheduledFuture
+          ? "border-purple-200"
           : ageMin >= 20
           ? "border-red-200"
           : ageMin >= 10
@@ -159,6 +188,12 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-bold text-gray-900 text-sm">#{kot.ticketNumber}</span>
             <span className="text-xs text-gray-500">Order #{kot.orderNumber}</span>
+            {/* ONLINE source label */}
+            {orderSource === "ONLINE" && (
+              <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded-full">
+                ONLINE
+              </span>
+            )}
           </div>
           {kot.tableName && (
             <span className="text-xs text-gray-500">Table: {kot.tableName}</span>
@@ -168,9 +203,32 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
               {kot.items[0].department.name}
             </span>
           )}
+          {/* Order type + scheduled badges */}
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            {orderType === "TAKEAWAY" && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full">
+                <ShoppingBag className="w-3 h-3" />
+                TAKEAWAY
+              </span>
+            )}
+            {orderType === "DELIVERY" && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">
+                <Truck className="w-3 h-3" />
+                DELIVERY
+              </span>
+            )}
+            {isScheduled && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full">
+                <Clock className="w-3 h-3" />
+                {isScheduledFuture
+                  ? `Scheduled for ${new Date(scheduledFor!).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : "SCHEDULED"}
+              </span>
+            )}
+          </div>
         </div>
         <LiveTimer createdAt={kot.createdAt} />
-        {ageMin >= 10 && (
+        {ageMin >= 10 && !isScheduledFuture && (
           <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${
             ageMin >= 20
               ? "bg-red-100 text-red-600 animate-pulse"
@@ -313,6 +371,7 @@ export default function KitchenPage() {
   const [selectedBranchId, setSelectedBranchId] = useState("")
   const [departments, setDepartments] = useState<Department[]>([])
   const [activeDeptId, setActiveDeptId] = useState<string | null>(null)
+  const [activeQueue, setActiveQueue] = useState<"all" | "dine-in" | "online" | "scheduled">("all")
   const [kots, setKots] = useState<Kot[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -452,10 +511,33 @@ export default function KitchenPage() {
     }
   }, [accessToken, selectedBranchId])
 
+  const filteredKots = kots.filter((k) => {
+    if (activeQueue === "all") return true
+    if (activeQueue === "dine-in") return !k.order?.orderType || k.order.orderType === "DINE_IN"
+    if (activeQueue === "online")
+      return k.order?.orderSource === "ONLINE" &&
+        (k.order.orderType === "TAKEAWAY" || k.order.orderType === "DELIVERY")
+    if (activeQueue === "scheduled") return !!k.order?.scheduledFor
+    return true
+  })
+
+  // Scheduled orders sort to the bottom within their queue
+  const sortedKots = [...filteredKots].sort((a, b) => {
+    const aScheduledFuture =
+      !!a.order?.scheduledFor &&
+      new Date(a.order.scheduledFor).getTime() - Date.now() > 10 * 60_000
+    const bScheduledFuture =
+      !!b.order?.scheduledFor &&
+      new Date(b.order.scheduledFor).getTime() - Date.now() > 10 * 60_000
+    if (aScheduledFuture && !bScheduledFuture) return 1
+    if (!aScheduledFuture && bScheduledFuture) return -1
+    return 0
+  })
+
   const byStatus = {
-    PENDING: kots.filter((k) => k.status === "PENDING"),
-    IN_PROGRESS: kots.filter((k) => k.status === "IN_PROGRESS"),
-    COMPLETED: kots.filter((k) => k.status === "COMPLETED"),
+    PENDING: sortedKots.filter((k) => k.status === "PENDING"),
+    IN_PROGRESS: sortedKots.filter((k) => k.status === "IN_PROGRESS"),
+    COMPLETED: sortedKots.filter((k) => k.status === "COMPLETED"),
   }
 
   function handleRefresh() {
@@ -508,6 +590,28 @@ export default function KitchenPage() {
           </button>
         </div>
       </div>
+
+      {/* Queue filter */}
+      {selectedBranchId && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {(["all", "dine-in", "online", "scheduled"] as const).map((q) => {
+            const labels = { all: "All", "dine-in": "Dine In", online: "Online", scheduled: "Scheduled" }
+            return (
+              <button
+                key={q}
+                onClick={() => setActiveQueue(q)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  activeQueue === q
+                    ? "bg-gray-800 text-white"
+                    : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {labels[q]}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* Department section selector */}
       {departments.length > 0 && (

@@ -169,9 +169,27 @@ export class OrdersService {
       throw new ForbiddenException("Branch not found or access denied")
     }
 
-    // Validate customer if provided
-    if (dto.customerId) {
-      const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } })
+    // Validate customer if provided, or auto-create from name+phone
+    let resolvedCustomerId = dto.customerId
+    if (!resolvedCustomerId && dto.customerPhone) {
+      const existing = await this.prisma.customer.findUnique({
+        where: { restaurantId_phone: { restaurantId, phone: dto.customerPhone } },
+      })
+      if (existing) {
+        resolvedCustomerId = existing.id
+      } else if (dto.customerName) {
+        const created = await this.prisma.customer.create({
+          data: {
+            restaurantId,
+            name: dto.customerName,
+            phone: dto.customerPhone,
+            email: (dto as any).customerEmail ?? null,
+          },
+        })
+        resolvedCustomerId = created.id
+      }
+    } else if (resolvedCustomerId) {
+      const customer = await this.prisma.customer.findUnique({ where: { id: resolvedCustomerId } })
       if (!customer || customer.restaurantId !== restaurantId) {
         throw new NotFoundException("Customer not found")
       }
@@ -294,7 +312,7 @@ export class OrdersService {
             restaurantId,
             branchId: dto.branchId,
             tableId: dto.tableId,
-            customerId: dto.customerId ?? null,
+            customerId: resolvedCustomerId ?? null,
             orderNumber,
             orderType: dto.orderType ?? OrderType.DINE_IN,
             orderSource: (dto.orderSource as OrderSource) ?? OrderSource.QR_TABLE,

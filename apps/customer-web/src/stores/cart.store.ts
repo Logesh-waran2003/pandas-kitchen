@@ -36,6 +36,7 @@ interface CartStore {
 
   // Actions — table/items
   setTable: (tableId: string, branchId: string, restaurantId: string) => void
+  setOnlineContext: (branchId: string, restaurantId: string) => void
   addItem: (item: CartItem) => void
   removeItem: (menuItemId: string, variantId?: string) => void
   updateQty: (menuItemId: string, variantId: string | undefined, delta: number) => void
@@ -79,6 +80,9 @@ export const useCartStore = create<CartStore>()(
       // ── Table/items ──────────────────────────────────────────────────────────
       setTable: (tableId, branchId, restaurantId) =>
         set({ tableId, branchId, restaurantId }),
+
+      setOnlineContext: (branchId, restaurantId) =>
+        set({ branchId, restaurantId, tableId: null, orderType: "TAKEAWAY" }),
 
       addItem: (item) =>
         set((s) => {

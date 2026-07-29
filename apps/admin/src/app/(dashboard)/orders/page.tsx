@@ -636,8 +636,9 @@ export default function OrdersPage() {
     setError(null)
     try {
       const url = activeTab === "ALL" ? "/orders" : `/orders?status=${activeTab}`
-      const data = await apiFetch<Order[]>(url)
-      setOrders(data)
+      const res = await apiFetch<{ data: Order[]; meta: unknown } | Order[]>(url)
+      const orders = Array.isArray(res) ? res : (res as any).data ?? []
+      setOrders(orders)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load orders")
     } finally {

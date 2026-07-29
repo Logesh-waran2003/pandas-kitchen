@@ -100,6 +100,11 @@ export default function CheckoutPage() {
     }
   }, [scheduleMode, scheduledInput, setScheduledFor])
 
+  // Reset payment method default when order type changes
+  useEffect(() => {
+    setPaymentMethod(orderType === "DELIVERY" ? "CASH" : "COUNTER")
+  }, [orderType])
+
   const subtotal = total()
   const serviceCharge = settings
     ? Math.round(subtotal * (settings.serviceChargePercent / 100) * 100) / 100
@@ -236,7 +241,13 @@ export default function CheckoutPage() {
       }>("/orders/public", { method: "POST", body: JSON.stringify(payload) })
 
       if (typeof window !== "undefined") {
-        localStorage.setItem("pk-last-order", JSON.stringify(order))
+        const paymentLabel =
+          orderType === "TAKEAWAY" && paymentMethod !== "UPI"
+            ? "Pay at Counter"
+            : orderType === "DELIVERY" && paymentMethod !== "UPI"
+            ? "Cash on Delivery"
+            : "UPI"
+        localStorage.setItem("pk-last-order", JSON.stringify({ ...order, paymentLabel }))
         // Track order history (newest-first, max 20)
         try {
           const prev: string[] = JSON.parse(localStorage.getItem("pk-my-orders") ?? "[]")
@@ -496,6 +507,42 @@ export default function CheckoutPage() {
           )}
         </div>
 
+        {/* Payment method — TAKEAWAY or DELIVERY only */}
+        {(orderType === "TAKEAWAY" || orderType === "DELIVERY") && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              Payment Method
+            </h2>
+            <div className="flex gap-2 mb-3">
+              <button
+                onClick={() => setPaymentMethod(orderType === "DELIVERY" ? "CASH" : "COUNTER")}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                  paymentMethod !== "UPI"
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-gray-600 border-gray-200"
+                }`}
+              >
+                {orderType === "DELIVERY" ? "Cash on Delivery" : "Pay at Counter"}
+              </button>
+              <button
+                onClick={() => setPaymentMethod("UPI")}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                  paymentMethod === "UPI"
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-gray-600 border-gray-200"
+                }`}
+              >
+                Pay via UPI
+              </button>
+            </div>
+            {paymentMethod === "UPI" && (
+              <p className="text-xs text-gray-400 text-center mt-1">
+                UPI payment coming soon — pay at counter for now
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Bill summary */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
@@ -558,7 +605,15 @@ export default function CheckoutPage() {
           {placing && (
             <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
           )}
-          {placing ? "Placing Order…" : `Place Order · ₹${Math.max(0, grandTotal).toFixed(2)}`}
+          {placing
+            ? "Placing Order…"
+            : `${
+                orderType === "TAKEAWAY" && paymentMethod !== "UPI"
+                  ? "Place Order (Pay at Counter)"
+                  : orderType === "DELIVERY" && paymentMethod !== "UPI"
+                  ? "Place Order (Cash on Delivery)"
+                  : "Place Order"
+              } · ₹${Math.max(0, grandTotal).toFixed(2)}`}
         </button>
       </div>
     </div>

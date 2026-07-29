@@ -24,6 +24,7 @@ interface MenuItem {
   categoryId: string
   departmentId?: string | null
   preparationTime?: number
+  allergens?: string[]
 }
 
 interface Department {
@@ -200,6 +201,7 @@ function ItemModal({
   const [isAvailable, setIsAvailable] = useState(editing?.isAvailable ?? true)
   const [imageUrl, setImageUrl] = useState(editing?.imageUrl ?? "")
   const [departmentId, setDepartmentId] = useState(editing?.departmentId ?? "")
+  const [allergensInput, setAllergensInput] = useState((editing?.allergens ?? []).join(", "))
   const [departments, setDepartments] = useState<Department[]>([])
   const [saving, setSaving] = useState(false)
 
@@ -222,6 +224,7 @@ function ItemModal({
       isAvailable,
       imageUrl: imageUrl || undefined,
       departmentId: departmentId || null,
+      allergens: allergensInput ? allergensInput.split(",").map((a) => a.trim()).filter(Boolean) : [],
     }
     try {
       if (editing) {
@@ -361,6 +364,19 @@ function ItemModal({
               onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
             />
           )}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Allergens
+          </label>
+          <input
+            type="text"
+            value={allergensInput}
+            onChange={(e) => setAllergensInput(e.target.value)}
+            placeholder="e.g. Gluten, Dairy, Nuts"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+          <p className="text-xs text-gray-400 mt-1">Comma-separated</p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button

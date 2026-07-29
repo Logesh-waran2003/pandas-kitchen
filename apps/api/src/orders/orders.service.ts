@@ -321,6 +321,14 @@ export class OrdersService {
       }
     }
 
+    // Update table status to OCCUPIED when order is placed at a table
+    if (dto.tableId) {
+      await this.prisma.table.update({
+        where: { id: dto.tableId },
+        data: { status: "OCCUPIED" },
+      })
+    }
+
     this.events.emitToBranch(dto.branchId, "order.created", {
       id: order.id,
       orderNumber: order.orderNumber,

@@ -1,0 +1,40 @@
+Sprint 1 Part B — completed 2026-07-29
+
+Fix 1: KDS audio alert on new ticket
+  - apps/admin/src/app/(dashboard)/kitchen/page.tsx
+    - Added playKDSAlert() function (lines 31–49)
+    - Called in onKotCreated handler (line 372)
+
+Fix 2: Call Waiter + Request Bill — WebSocket events
+  Backend:
+  - apps/api/src/events/events.gateway.ts
+    - Added @SubscribeMessage("table:call-waiter") handler → emits waiter:called to branch:${branchId} (lines 96–106)
+    - Added @SubscribeMessage("table:request-bill") handler → emits bill:requested to branch:${branchId} (lines 108–118)
+
+  Customer web:
+  - apps/customer-web/src/app/order/[orderId]/page.tsx
+    - Imported useCartStore, BellRing, Receipt icons
+    - Added waiterSent/billSent state, socketRef, tableId/branchId from cart store
+    - Added handleCallWaiter() → emits table:call-waiter, 2s "Sent!" confirmation
+    - Added handleRequestBill() → emits table:request-bill, 2s "Sent!" confirmation
+    - Added Call Waiter + Request Bill buttons in JSX (visible when tableId && branchId)
+
+  Admin tables page:
+  - apps/admin/src/app/(dashboard)/tables/page.tsx
+    - Added socket listeners for waiter:called → toast.info (line 329)
+    - Added socket listeners for bill:requested → toast.info (line 333)
+    - Added join:branch effect to emit join:branch on selectedBranchId change (lines 370–383)
+
+  Admin kitchen page:
+  - apps/admin/src/app/(dashboard)/kitchen/page.tsx
+    - onConnect now emits join:branch in addition to join:kitchen (line 358)
+    - Added onWaiterCalled → toast.info (lines 382–384)
+    - Added onBillRequested → toast.info (lines 386–388)
+    - Both events registered/unregistered in socket effect
+
+Fix 3: Real-time order status on customer tracking page
+  - No changes needed — already implemented:
+    - apps/customer-web/src/app/order/[orderId]/page.tsx already listens to order.status_changed via WebSocket
+    - apps/api/src/orders/orders.service.ts already emits order.status_changed to order room on updateStatus
+
+TypeScript: bunx tsc --noEmit passed clean for all 3 apps (api, admin, customer-web)

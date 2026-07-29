@@ -83,8 +83,14 @@ export class PaymentsService {
       status: serialized.status,
     })
 
-    // If fully paid, also emit payment.completed to branch + order rooms
+    // If fully paid, free the table and emit payment.completed
     if (payment.paymentStatus === "PAID") {
+      if (order.tableId) {
+        await this.prisma.table.update({
+          where: { id: order.tableId },
+          data: { status: "AVAILABLE" },
+        })
+      }
       const completedPayload = {
         orderId: dto.orderId,
         totalPaid: Number(payment.totalPaid),

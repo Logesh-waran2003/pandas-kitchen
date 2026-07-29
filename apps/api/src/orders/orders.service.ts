@@ -430,6 +430,23 @@ export class OrdersService {
     return this.serializeOrder(order)
   }
 
+  async getCustomerOrders(customerId: string, limit = 20) {
+    const orders = await this.prisma.order.findMany({
+      where: { customerId },
+      include: {
+        branch: { select: { id: true, name: true } },
+        items: {
+          include: {
+            menuItem: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: Math.min(limit, 50),
+    })
+    return orders.map(this.serializeOrder)
+  }
+
   async validateCoupon(restaurantId: string, code: string, subtotal: number) {
     const coupon = await this.prisma.coupon.findUnique({
       where: { restaurantId_code: { restaurantId, code } },

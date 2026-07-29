@@ -96,6 +96,17 @@ export class OrdersController {
     )
   }
 
+  @Public()
+  @Get("by-customer/:customerId")
+  @ApiOperation({ summary: "Public: get order history for a customer" })
+  @ApiQuery({ name: "limit", required: false, description: "Max orders to return (default: 20, max: 50)" })
+  getCustomerOrders(
+    @Param("customerId") customerId: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.ordersService.getCustomerOrders(customerId, limit ? parseInt(limit) : 20)
+  }
+
   @Get(":id/receipt")
   @ApiOperation({ summary: "Get receipt data for an order" })
   getReceipt(

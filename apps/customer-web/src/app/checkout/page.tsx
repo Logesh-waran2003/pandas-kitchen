@@ -70,6 +70,11 @@ export default function CheckoutPage() {
   const [phoneInput, setPhoneInput] = useState(customerPhone ?? "")
   const [emailInput, setEmailInput] = useState(customerEmail ?? "")
 
+  // Payment method
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "COUNTER" | "UPI">(
+    orderType === "DELIVERY" ? "CASH" : "COUNTER"
+  )
+
   // Placing
   const [placing, setPlacing] = useState(false)
 
@@ -167,7 +172,7 @@ export default function CheckoutPage() {
     } else if (nameInput.trim() && phoneInput.length >= 10) {
       try {
         const res = await apiFetch<{ token: string; customerId: string }>(
-          "/auth/customer/login",
+          `/customers/${restaurantId}/login`,
           {
             method: "POST",
             body: JSON.stringify({
@@ -232,6 +237,12 @@ export default function CheckoutPage() {
 
       if (typeof window !== "undefined") {
         localStorage.setItem("pk-last-order", JSON.stringify(order))
+        // Track order history (newest-first, max 20)
+        try {
+          const prev: string[] = JSON.parse(localStorage.getItem("pk-my-orders") ?? "[]")
+          const updated = [order.id, ...prev.filter((id) => id !== order.id)].slice(0, 20)
+          localStorage.setItem("pk-my-orders", JSON.stringify(updated))
+        } catch { /* non-fatal */ }
       }
       clearCart()
       toast.success(`Order ${order.orderNumber} placed! 🎉`)

@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   NotFoundException,
+  OnModuleInit,
 } from "@nestjs/common"
 import { JwtService } from "@nestjs/jwt"
 import * as bcrypt from "bcryptjs"
@@ -23,11 +24,23 @@ const CustomerLoginSchema = z.object({
 })
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
   ) {}
+
+  // Run once on startup, then every 24 h — keeps the sessions table from growing unbounded (BUG-08)
+  onModuleInit() {
+    this.cleanExpiredSessions()
+    setInterval(() => this.cleanExpiredSessions(), 24 * 60 * 60 * 1000)
+  }
+
+  private async cleanExpiredSessions() {
+    await this.prisma.session.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    })
+  }
 
   async login(body: unknown) {
     const parsed = LoginSchema.safeParse(body)

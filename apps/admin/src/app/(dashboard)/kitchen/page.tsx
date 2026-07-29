@@ -9,16 +9,32 @@ import { getSocket } from "@/lib/socket"
 import { useAuthStore } from "@/stores/auth.store"
 
 interface Branch { id: string; name: string }
-interface KotItem { id: string; name: string; quantity: number; status: "PENDING" | "IN_PROGRESS" | "DONE" }
+interface Department { id: string; name: string }
+interface KotItem {
+  id: string
+  name: string
+  quantity: number
+  status: "PENDING" | "IN_PROGRESS" | "DONE"
+  department?: { id: string; name: string }
+}
 interface Kot {
   id: string
   ticketNumber: string
   orderNumber: string
   tableName?: string
-  department?: string
   status: "PENDING" | "IN_PROGRESS" | "COMPLETED"
   createdAt: string
   items: KotItem[]
+}
+
+// ─── Dept color ───────────────────────────────────────────────────────────────
+
+function deptColor(name: string | undefined): string {
+  if (!name) return "#6b7280"
+  const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6"]
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return colors[Math.abs(hash) % colors.length]
 }
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -58,6 +74,7 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
   const [markingItemId, setMarkingItemId] = useState<string | null>(null)
 
   const isNew = Date.now() - new Date(kot.createdAt).getTime() < 60_000
+  const borderColor = deptColor(kot.items[0]?.department?.name)
 
   async function handleStatusChange(status: "IN_PROGRESS" | "COMPLETED") {
     setActionLoading(true)
@@ -97,6 +114,7 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
           ? "animate-pulse border-orange-400 ring-2 ring-orange-400"
           : "border-gray-200"
       }`}
+      style={{ borderLeft: `4px solid ${borderColor}` }}
     >
       {/* Top row */}
       <div className="flex items-start justify-between gap-2">
@@ -108,9 +126,9 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
           {kot.tableName && (
             <span className="text-xs text-gray-500">Table: {kot.tableName}</span>
           )}
-          {kot.department && (
+          {kot.items[0]?.department?.name && (
             <span className="ml-2 text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">
-              {kot.department}
+              {kot.items[0].department.name}
             </span>
           )}
         </div>
@@ -242,15 +260,20 @@ function KanbanColumn({
 export default function KitchenPage() {
   const [branches, setBranches] = useState<Branch[]>([])
   const [selectedBranchId, setSelectedBranchId] = useState("")
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [activeDeptId, setActiveDeptId] = useState<string | null>(null)
   const [kots, setKots] = useState<Kot[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedDept, setSelectedDept] = useState<string>("All")
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [spinning, setSpinning] = useState(false)
   const [socketConnected, setSocketConnected] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeDeptRef = useRef<string | null>(null)
   const accessToken = useAuthStore((s) => s.accessToken)
+
+  // Keep ref in sync so socket closure always sees latest dept
+  activeDeptRef.current = activeDeptId
 
   // Load branches once on mount
   useEffect(() => {
@@ -262,13 +285,25 @@ export default function KitchenPage() {
       .catch(() => toast.error("Failed to load branches"))
   }, [])
 
-  const loadKots = useCallback(async (branchId: string, showSpinner = false) => {
+  // Load departments when branch changes
+  useEffect(() => {
+    if (!selectedBranchId) return
+    setActiveDeptId(null)
+    apiFetch<Department[]>(`/kitchen/departments?branchId=${selectedBranchId}`)
+      .then(setDepartments)
+      .catch(() => toast.error("Failed to load departments"))
+  }, [selectedBranchId])
+
+  const loadKots = useCallback(async (branchId: string, departmentId?: string | null, showSpinner = false) => {
     if (!branchId) return
     if (showSpinner) setSpinning(true)
     setLoading(true)
     setError(null)
     try {
-      const data = await apiFetch<Kot[]>(`/kitchen/kot?branchId=${branchId}`)
+      const qs = departmentId
+        ? `?branchId=${branchId}&departmentId=${departmentId}`
+        : `?branchId=${branchId}`
+      const data = await apiFetch<Kot[]>(`/kitchen/kot${qs}`)
       setKots(data)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load KOTs")
@@ -278,10 +313,10 @@ export default function KitchenPage() {
     }
   }, [])
 
-  // Reload when branch changes
+  // Reload when branch or active dept changes
   useEffect(() => {
-    if (selectedBranchId) loadKots(selectedBranchId)
-  }, [selectedBranchId, loadKots])
+    if (selectedBranchId) loadKots(selectedBranchId, activeDeptId)
+  }, [selectedBranchId, activeDeptId, loadKots])
 
   // Auto-refresh management
   useEffect(() => {
@@ -290,7 +325,10 @@ export default function KitchenPage() {
       intervalRef.current = null
     }
     if (autoRefresh && selectedBranchId) {
-      intervalRef.current = setInterval(() => loadKots(selectedBranchId), 30_000)
+      intervalRef.current = setInterval(
+        () => loadKots(selectedBranchId, activeDeptRef.current),
+        30_000,
+      )
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
@@ -312,8 +350,16 @@ export default function KitchenPage() {
       setSocketConnected(false)
     }
 
-    function onKotCreated() {
-      loadKots(selectedBranchId)
+    function onKotCreated(newKot: Kot) {
+      const deptId = activeDeptRef.current
+      if (deptId) {
+        // Only prepend if the new KOT has at least one item in the active department
+        const matches = newKot.items.some((item) => item.department?.id === deptId)
+        if (!matches) return
+        setKots((prev) => [newKot, ...prev])
+      } else {
+        setKots((prev) => [newKot, ...prev])
+      }
     }
 
     function onKotStatusChanged(data: { id: string; status: Kot["status"] }) {
@@ -338,24 +384,16 @@ export default function KitchenPage() {
       socket.off("kot.created", onKotCreated)
       socket.off("kot.status_changed", onKotStatusChanged)
     }
-  }, [accessToken, selectedBranchId, loadKots])
-
-  // Unique departments from loaded KOTs
-  const departments = ["All", ...Array.from(new Set(kots.map((k) => k.department).filter(Boolean) as string[]))]
-
-  // Client-side department filter
-  const filtered = selectedDept === "All"
-    ? kots
-    : kots.filter((k) => k.department === selectedDept)
+  }, [accessToken, selectedBranchId])
 
   const byStatus = {
-    PENDING: filtered.filter((k) => k.status === "PENDING"),
-    IN_PROGRESS: filtered.filter((k) => k.status === "IN_PROGRESS"),
-    COMPLETED: filtered.filter((k) => k.status === "COMPLETED"),
+    PENDING: kots.filter((k) => k.status === "PENDING"),
+    IN_PROGRESS: kots.filter((k) => k.status === "IN_PROGRESS"),
+    COMPLETED: kots.filter((k) => k.status === "COMPLETED"),
   }
 
   function handleRefresh() {
-    loadKots(selectedBranchId, true)
+    loadKots(selectedBranchId, activeDeptId, true)
   }
 
   return (
@@ -381,23 +419,6 @@ export default function KitchenPage() {
           ))}
         </select>
 
-        {/* Department filter */}
-        <div className="flex items-center gap-1 flex-wrap">
-          {departments.map((dept) => (
-            <button
-              key={dept}
-              onClick={() => setSelectedDept(dept)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                selectedDept === dept
-                  ? "bg-orange-500 text-white"
-                  : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              {dept}
-            </button>
-          ))}
-        </div>
-
         <div className="ml-auto flex items-center gap-3">
           {/* Auto-refresh toggle */}
           <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
@@ -421,6 +442,40 @@ export default function KitchenPage() {
           </button>
         </div>
       </div>
+
+      {/* Department section selector */}
+      {departments.length > 0 && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => setActiveDeptId(null)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+              activeDeptId === null
+                ? "bg-orange-500 text-white"
+                : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            All Sections
+          </button>
+          {departments.map((dept) => (
+            <button
+              key={dept.id}
+              onClick={() => setActiveDeptId(dept.id)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                activeDeptId === dept.id
+                  ? "text-white"
+                  : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+              }`}
+              style={
+                activeDeptId === dept.id
+                  ? { backgroundColor: deptColor(dept.name), borderColor: deptColor(dept.name) }
+                  : {}
+              }
+            >
+              {dept.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Error state */}
       {error && (

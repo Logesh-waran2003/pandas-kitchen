@@ -511,15 +511,13 @@ export class OrdersService {
       this.inventoryService.deductForOrder(id).catch(() => {})
     }
 
-    // Loyalty points + stats on PAID
+    // Loyalty points on PAID (totalOrders + totalSpent already incremented at order creation)
     if (dto.status === "PAID" && order.customerId) {
       const pointsEarned = Math.floor(Number(order.total) / 10)
       this.prisma.customer.update({
         where: { id: order.customerId },
         data: {
           loyaltyPoints: { increment: pointsEarned },
-          totalOrders: { increment: 1 },
-          totalSpent: { increment: order.total },
         },
       }).catch(() => {})
     }

@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Body,
   UseGuards,
   Request,
@@ -28,6 +29,13 @@ export class AuthController {
   }
 
   @Public()
+  @Post("customer/login")
+  @ApiOperation({ summary: "Customer login — create or find by phone" })
+  customerLogin(@Body() body: unknown) {
+    return this.authService.customerLogin(body)
+  }
+
+  @Public()
   @Post("refresh")
   @ApiOperation({ summary: "Refresh access token" })
   refresh(@Body() body: RefreshTokenDto) {
@@ -47,5 +55,16 @@ export class AuthController {
   @ApiOperation({ summary: "Get current user" })
   me(@CurrentUser("id") userId: string) {
     return this.authService.me(userId)
+  }
+
+  @Patch("change-password")
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Change password for the current user" })
+  changePassword(
+    @CurrentUser("id") userId: string,
+    @Body("currentPassword") currentPassword: string,
+    @Body("newPassword") newPassword: string,
+  ) {
+    return this.authService.changePassword(userId, currentPassword, newPassword)
   }
 }

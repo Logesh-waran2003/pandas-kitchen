@@ -1,0 +1,52 @@
+P2 features complete — 2026-07-29
+
+## Feature 1: Employee Management
+Backend:
+- apps/api/src/employees/dto/employee.dto.ts (CreateEmployeeDto, UpdateEmployeeDto)
+- apps/api/src/employees/employees.service.ts (list, findOne, create w/ bcrypt, update, deactivate)
+- apps/api/src/employees/employees.controller.ts (GET /employees, GET /employees/:id, POST, PATCH, DELETE)
+- apps/api/src/employees/employees.module.ts
+- Registered EmployeesModule in app.module.ts
+- Auth: JwtAuthGuard + RolesGuard (RESTAURANT_OWNER | BRANCH_MANAGER only)
+
+Frontend:
+- apps/admin/src/app/(dashboard)/employees/page.tsx
+  - Staff table: Name, Email, Role badge (color-coded), Branch, Status, Actions
+  - Add Staff modal (name, email, password, role select, branch select)
+  - Edit Staff modal (name, role, branch — no password)
+  - Deactivate/reactivate toggle (DELETE → soft delete, PATCH isActive=true → reactivate)
+- Added "Staff" nav item (UserCog icon) to sidebar between Customers and Tables
+
+## Feature 2: Delivery Ordering Support
+Backend:
+- Added deliveryAddress String? to Order model in schema.prisma
+- Migration: 20260728205258_add_delivery_address applied
+- Added deliveryAddress?: string field to CreateOrderDto
+- orders.service.ts createOrder: throws BadRequestException if DELIVERY and no deliveryAddress
+- deliveryAddress persisted to Order record on create
+
+Frontend (customer-web):
+- menu/[restaurantId]/page.tsx: added orderType state ("DINE_IN" | "DELIVERY")
+- Cart drawer: two-button selector (🪑 Dine In / 🚚 Delivery) at top
+- Dine-In: shows table info from URL
+- Delivery: shows textarea for delivery address (validated before submit)
+- submitOrder passes orderType + deliveryAddress in POST /orders/public payload
+
+## Feature 3: Analytics Reports
+Backend:
+- analytics.service.ts: added getReport() dispatcher + 6 private methods:
+  getTodaySales, getDaywiseSales, getItemWiseSales (groupBy workaround for Prisma circular-type),
+  getPaymentModeBreakdown, getCancelledOrders, getTopCustomers
+- analytics.controller.ts: GET /analytics/reports/:type?from=&to=&branchId=
+
+Frontend:
+- analytics/page.tsx: Reports section below existing charts
+  - 6 report type tabs: Today Sales | Day-wise | Item-wise | Payment Modes | Cancelled | Top Customers
+  - Date range pickers (from/to), default last 7 days
+  - "Run Report" button with spinner
+  - ReportTable component renders appropriate columns per report type
+
+## Build status
+- apps/api: ✓ nest build clean
+- apps/admin: ✓ next build clean (16 routes)
+- apps/customer-web: ✓ next build clean (5 routes)

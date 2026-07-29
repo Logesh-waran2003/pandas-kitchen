@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import { apiFetch } from "@/lib/api"
 import { formatCurrency } from "@/lib/utils"
 import { toast } from "sonner"
-import { Plus, Pencil, Trash2, X, UtensilsCrossed } from "lucide-react"
+import { Plus, Pencil, Trash2, X, UtensilsCrossed, FlaskConical } from "lucide-react"
 
 interface Category {
   id: string
@@ -22,7 +22,14 @@ interface MenuItem {
   isAvailable: boolean
   imageUrl?: string
   categoryId: string
+  departmentId?: string | null
   preparationTime?: number
+  allergens?: string[]
+}
+
+interface Department {
+  id: string
+  name: string
 }
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -192,7 +199,17 @@ function ItemModal({
     editing?.preparationTime?.toString() ?? ""
   )
   const [isAvailable, setIsAvailable] = useState(editing?.isAvailable ?? true)
+  const [imageUrl, setImageUrl] = useState(editing?.imageUrl ?? "")
+  const [departmentId, setDepartmentId] = useState(editing?.departmentId ?? "")
+  const [allergensInput, setAllergensInput] = useState((editing?.allergens ?? []).join(", "))
+  const [departments, setDepartments] = useState<Department[]>([])
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    apiFetch<Department[]>("/kitchen/departments")
+      .then(setDepartments)
+      .catch(() => {})
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -205,6 +222,9 @@ function ItemModal({
       isVeg,
       preparationTime: preparationTime ? parseInt(preparationTime) : undefined,
       isAvailable,
+      imageUrl: imageUrl || undefined,
+      departmentId: departmentId || null,
+      allergens: allergensInput ? allergensInput.split(",").map((a) => a.trim()).filter(Boolean) : [],
     }
     try {
       if (editing) {
@@ -244,6 +264,19 @@ function ItemModal({
           >
             {categories.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Kitchen Section</label>
+          <select
+            value={departmentId}
+            onChange={(e) => setDepartmentId(e.target.value)}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          >
+            <option value="">— None (General) —</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
             ))}
           </select>
         </div>
@@ -314,6 +347,37 @@ function ItemModal({
             Available
           </label>
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
+          <input
+            type="url"
+            value={imageUrl}
+            onChange={(e) => setImageUrl(e.target.value)}
+            placeholder="https://…"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+          {imageUrl && (
+            <img
+              src={imageUrl}
+              alt="Preview"
+              className="mt-2 w-10 h-10 object-cover rounded border border-gray-200"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none" }}
+            />
+          )}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Allergens
+          </label>
+          <input
+            type="text"
+            value={allergensInput}
+            onChange={(e) => setAllergensInput(e.target.value)}
+            placeholder="e.g. Gluten, Dairy, Nuts"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+          <p className="text-xs text-gray-400 mt-1">Comma-separated</p>
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
@@ -335,6 +399,153 @@ function ItemModal({
   )
 }
 
+// ─── Ingredients Drawer ──────────────────────────────────────────────────────
+
+interface InventoryOption { id: string; name: string; unit: string }
+interface Ingredient { id: string; inventoryItemId: string; quantity: number; inventoryItem: { id: string; name: string; unit: string; currentStock: number } }
+
+function IngredientsDrawer({ item, onClose }: { item: MenuItem; onClose: () => void }) {
+  const [ingredients, setIngredients] = useState<Ingredient[]>([])
+  const [inventoryItems, setInventoryItems] = useState<InventoryOption[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedInvId, setSelectedInvId] = useState("")
+  const [quantity, setQuantity] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  async function loadIngredients() {
+    try {
+      const data = await apiFetch<Ingredient[]>(`/inventory/ingredients/${item.id}`)
+      setIngredients(data)
+    } catch { /* ignore */ }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => {
+    loadIngredients()
+    // Load all inventory items for the dropdown (no branchId filter — pick first available)
+    apiFetch<InventoryOption[]>("/inventory?branchId=")
+      .then(setInventoryItems)
+      .catch(() => {})
+  }, [item.id])
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!selectedInvId || !quantity) return
+    setSaving(true)
+    try {
+      await apiFetch("/inventory/ingredients", {
+        method: "POST",
+        body: JSON.stringify({ menuItemId: item.id, inventoryItemId: selectedInvId, quantity: parseFloat(quantity) }),
+      })
+      toast.success("Ingredient added")
+      setSelectedInvId("")
+      setQuantity("")
+      loadIngredients()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to add")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await apiFetch(`/inventory/ingredients/${id}`, { method: "DELETE" })
+      toast.success("Ingredient removed")
+      loadIngredients()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to remove")
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      <div
+        className="bg-white h-full w-full max-w-sm shadow-2xl flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
+          <div>
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-0.5">Ingredients / BOM</p>
+            <h3 className="text-base font-semibold text-gray-900 truncate max-w-[200px]">{item.name}</h3>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Ingredient list */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-10 bg-gray-100 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : ingredients.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">No ingredients linked yet</p>
+          ) : (
+            <div className="space-y-2">
+              {ingredients.map(ing => (
+                <div key={ing.id} className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{ing.inventoryItem.name}</p>
+                    <p className="text-xs text-gray-500">{ing.quantity} {ing.inventoryItem.unit} per serving</p>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(ing.id)}
+                    className="text-red-400 hover:text-red-600 p-1 shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Add ingredient form */}
+        <div className="border-t border-gray-200 px-5 py-4 shrink-0">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Add Ingredient</p>
+          <form onSubmit={handleAdd} className="space-y-2">
+            <select
+              required
+              value={selectedInvId}
+              onChange={e => setSelectedInvId(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            >
+              <option value="">— Select inventory item —</option>
+              {inventoryItems.map(inv => (
+                <option key={inv.id} value={inv.id}>{inv.name} ({inv.unit})</option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                required
+                min="0.001"
+                step="0.001"
+                placeholder="Qty per serving"
+                value={quantity}
+                onChange={e => setQuantity(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              />
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium rounded-lg disabled:opacity-60"
+              >
+                {saving ? "…" : "Add"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function MenuPage() {
@@ -348,6 +559,7 @@ export default function MenuPage() {
 
   const [catModal, setCatModal] = useState<false | Category | null>(false)
   const [itemModal, setItemModal] = useState<false | MenuItem | null>(false)
+  const [ingredientsItem, setIngredientsItem] = useState<MenuItem | null>(null)
 
   const togglingRef = useRef<Set<string>>(new Set())
   const [, forceUpdate] = useState(0)
@@ -612,6 +824,13 @@ export default function MenuPage() {
 
                     <div className="flex items-center gap-1">
                       <button
+                        onClick={() => setIngredientsItem(item)}
+                        className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+                        title="Manage ingredients"
+                      >
+                        <FlaskConical className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => setItemModal(item)}
                         className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
                       >
@@ -648,6 +867,13 @@ export default function MenuPage() {
           defaultCategoryId={selectedCategoryId}
           onClose={() => setItemModal(false)}
           onSaved={() => selectedCategoryId && loadItems(selectedCategoryId)}
+        />
+      )}
+
+      {ingredientsItem && (
+        <IngredientsDrawer
+          item={ingredientsItem}
+          onClose={() => setIngredientsItem(null)}
         />
       )}
     </div>

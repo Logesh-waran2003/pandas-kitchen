@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from "@nestjs/swagger"
 import { MenuService } from "./menu.service"
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard"
 import { CurrentUser } from "../auth/decorators/current-user.decorator"
+import { Public } from "../auth/decorators/public.decorator"
 import { CreateMenuCategoryDto } from "./dto/create-menu-category.dto"
 import { UpdateMenuCategoryDto } from "./dto/update-menu-category.dto"
 import { CreateMenuItemDto } from "./dto/create-menu-item.dto"
@@ -33,6 +34,42 @@ import {
 @Controller("menu")
 export class MenuController {
   constructor(private menuService: MenuService) {}
+
+  // ── Public (unauthenticated) ─────────────────────────────────────────────────
+
+  @Public()
+  @Get("public/:restaurantId")
+  @ApiOperation({ summary: "Public: full menu for a restaurant (categories + items + variants + addons)" })
+  getPublicMenu(@Param("restaurantId") restaurantId: string) {
+    return this.menuService.listPublicMenu(restaurantId)
+  }
+
+  @Public()
+  @Get("public/categories")
+  @ApiOperation({ summary: "Public: list active categories for a restaurant" })
+  @ApiQuery({ name: "restaurantId", required: true })
+  listPublicCategories(@Query("restaurantId") restaurantId: string) {
+    return this.menuService.listPublicCategories(restaurantId)
+  }
+
+  @Public()
+  @Get("public/items")
+  @ApiOperation({ summary: "Public: list available items for a restaurant" })
+  @ApiQuery({ name: "restaurantId", required: true })
+  @ApiQuery({ name: "categoryId", required: false })
+  listPublicItems(
+    @Query("restaurantId") restaurantId: string,
+    @Query("categoryId") categoryId?: string,
+  ) {
+    return this.menuService.listPublicItems(restaurantId, categoryId)
+  }
+
+  @Public()
+  @Get("public/items/:id/variants")
+  @ApiOperation({ summary: "Public: list available variants for a menu item" })
+  listPublicVariants(@Param("id") id: string) {
+    return this.menuService.listPublicVariants(id)
+  }
 
   // ── Categories ───────────────────────────────────────────────────────────────
 

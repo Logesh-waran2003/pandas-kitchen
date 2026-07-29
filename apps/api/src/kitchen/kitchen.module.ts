@@ -8,5 +8,6 @@ import { KitchenService } from "./kitchen.service"
   imports: [PrismaModule, EventsModule],
   controllers: [KitchenController],
   providers: [KitchenService],
+  exports: [KitchenService],
 })
 export class KitchenModule {}

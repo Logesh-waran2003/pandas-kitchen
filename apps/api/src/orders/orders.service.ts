@@ -6,6 +6,8 @@ import {
 } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
 import { EventsGateway } from "../events/events.gateway"
+import { InventoryService } from "../inventory/inventory.service"
+import { KitchenService } from "../kitchen/kitchen.service"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
 import { OrderStatus, OrderType } from "@prisma/client"
@@ -16,9 +18,22 @@ export class OrdersService {
   constructor(
     private prisma: PrismaService,
     private events: EventsGateway,
+    private inventoryService: InventoryService,
+    private kitchenService: KitchenService,
   ) {}
 
-  async listOrders(restaurantId: string, branchId?: string, status?: string, date?: string) {
+  async listOrders(
+    restaurantId: string,
+    branchId?: string,
+    status?: string,
+    date?: string,
+    page?: number,
+    limit?: number,
+  ) {
+    const pageNum = page && page > 0 ? page : 1
+    const limitNum = Math.min(limit && limit > 0 ? limit : 20, 100)
+    const skip = (pageNum - 1) * limitNum
+
     const where: any = { restaurantId }
 
     if (branchId) where.branchId = branchId
@@ -31,23 +46,64 @@ export class OrdersService {
       where.createdAt = { gte: start, lt: end }
     }
 
-    const orders = await this.prisma.order.findMany({
-      where,
-      include: {
-        table: { select: { id: true, tableNumber: true } },
-        branch: { select: { id: true, name: true } },
-        customer: { select: { id: true, name: true, phone: true } },
-        items: {
-          include: {
-            menuItem: { select: { id: true, name: true } },
-            addons: true,
+    const [orders, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: {
+          table: { select: { id: true, tableNumber: true } },
+          branch: { select: { id: true, name: true } },
+          customer: { select: { id: true, name: true, phone: true } },
+          items: {
+            include: {
+              menuItem: { select: { id: true, name: true } },
+              addons: true,
+            },
           },
         },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limitNum,
+      }),
+      this.prisma.order.count({ where }),
+    ])
+
+    return {
+      data: orders.map(this.serializeOrder),
+      meta: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+    }
+  }
+
+  async findOneForTracking(orderId: string, customerId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: { menuItem: { select: { name: true } } },
+        },
       },
-      orderBy: { createdAt: "desc" },
     })
 
-    return orders.map(this.serializeOrder)
+    if (!order) throw new NotFoundException("Order not found")
+    if (order.customerId !== customerId) throw new ForbiddenException()
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      orderType: order.orderType,
+      total: Number(order.total),
+      subtotal: Number(order.subtotal),
+      tax: Number(order.tax),
+      createdAt: order.createdAt,
+      items: order.items.map((i) => ({
+        id: i.id,
+        name: i.menuItem?.name ?? "",
+        quantity: i.quantity,
+        price: Number(i.unitPrice),
+        totalPrice: Number(i.totalPrice),
+        variantName: i.variantName ?? null,
+      })),
+    }
   }
 
   async getOrder(restaurantId: string, id: string) {
@@ -73,9 +129,22 @@ export class OrdersService {
     return this.serializeOrder(order)
   }
 
+  async createPublicOrder(dto: CreateOrderDto) {
+    // Resolve restaurantId from branchId — no auth context available
+    const branch = await this.prisma.branch.findUnique({ where: { id: dto.branchId } })
+    if (!branch || !branch.isActive) {
+      throw new NotFoundException("Branch not found")
+    }
+    return this.createOrder(branch.restaurantId, "", dto)
+  }
+
   async createOrder(restaurantId: string, userId: string, dto: CreateOrderDto) {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException("Order must have at least one item")
+    }
+
+    if (dto.orderType === OrderType.DELIVERY && !dto.deliveryAddress) {
+      throw new BadRequestException("Delivery address required for delivery orders")
     }
 
     const branch = await this.prisma.branch.findUnique({ where: { id: dto.branchId } })
@@ -166,73 +235,90 @@ export class OrdersService {
     const gstAmt = afterDiscount.add(serviceChargeAmt).mul(gstRate.div(100)).toDecimalPlaces(2)
     const total = afterDiscount.add(serviceChargeAmt).add(gstAmt)
 
-    const orderNumber = `ORD-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`
+    // Generate order number — timestamp + base-36 suffix for low collision probability.
+    // Retry once on the rare P2002 unique constraint violation.
+    const genNumber = () =>
+      `ORD-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
 
-    const order = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.order.create({
-        data: {
-          restaurantId,
-          branchId: dto.branchId,
-          tableId: dto.tableId,
-          customerId: dto.customerId ?? null,
-          orderNumber,
-          orderType: dto.orderType ?? OrderType.DINE_IN,
-          notes: dto.notes,
-          subtotal,
-          tax: gstAmt,
-          discount: discountAmt,
-          discountType: dto.discountType ?? "FLAT",
-          serviceCharge: serviceChargeAmt,
-          gstRate,
-          gstAmount: gstAmt,
-          total,
-          paymentStatus: "UNPAID",
-          createdById: userId,
-          items: {
-            create: lineItems.map((l) => ({
-              menuItemId: l.menuItemId,
-              variantId: l.variantId,
-              variantName: l.variantName,
-              quantity: l.quantity,
-              notes: l.notes,
-              unitPrice: l.unitPrice,
-              totalPrice: l.totalPrice,
-              addons: {
-                create: l.addons.map((a) => ({
-                  addonId: a.addonId,
-                  name: a.name,
-                  price: a.price,
-                })),
-              },
-            })),
-          },
-        },
-        include: {
-          table: { select: { id: true, tableNumber: true } },
-          branch: { select: { id: true, name: true } },
-          customer: { select: { id: true, name: true, phone: true } },
-          items: {
-            include: {
-              menuItem: { select: { id: true, name: true } },
-              addons: true,
+    const runTransaction = async (orderNumber: string) =>
+      this.prisma.$transaction(async (tx) => {
+        const created = await tx.order.create({
+          data: {
+            restaurantId,
+            branchId: dto.branchId,
+            tableId: dto.tableId,
+            customerId: dto.customerId ?? null,
+            orderNumber,
+            orderType: dto.orderType ?? OrderType.DINE_IN,
+            paxCount: dto.paxCount ?? 1,
+            notes: dto.notes,
+            deliveryAddress: dto.deliveryAddress ?? null,
+            subtotal,
+            tax: gstAmt,
+            discount: discountAmt,
+            discountType: dto.discountType ?? "FLAT",
+            serviceCharge: serviceChargeAmt,
+            gstRate,
+            gstAmount: gstAmt,
+            total,
+            paymentStatus: "UNPAID",
+            createdById: userId || null,
+            items: {
+              create: lineItems.map((l) => ({
+                menuItemId: l.menuItemId,
+                variantId: l.variantId,
+                variantName: l.variantName,
+                quantity: l.quantity,
+                notes: l.notes,
+                unitPrice: l.unitPrice,
+                totalPrice: l.totalPrice,
+                addons: {
+                  create: l.addons.map((a) => ({
+                    addonId: a.addonId,
+                    name: a.name,
+                    price: a.price,
+                  })),
+                },
+              })),
             },
           },
-        },
-      })
-
-      // Update customer stats if linked
-      if (dto.customerId) {
-        await tx.customer.update({
-          where: { id: dto.customerId },
-          data: {
-            totalOrders: { increment: 1 },
-            totalSpent: { increment: total },
+          include: {
+            table: { select: { id: true, tableNumber: true } },
+            branch: { select: { id: true, name: true } },
+            customer: { select: { id: true, name: true, phone: true } },
+            items: {
+              include: {
+                menuItem: { select: { id: true, name: true } },
+                addons: true,
+              },
+            },
           },
         })
-      }
 
-      return created
-    })
+        if (dto.customerId) {
+          await tx.customer.update({
+            where: { id: dto.customerId },
+            data: {
+              totalOrders: { increment: 1 },
+              totalSpent: { increment: total },
+            },
+          })
+        }
+
+        return created
+      })
+
+    let order: any
+    try {
+      order = await runTransaction(genNumber())
+    } catch (err: any) {
+      // P2002 = unique constraint violation — retry with a fresh number once
+      if (err?.code === "P2002") {
+        order = await runTransaction(genNumber())
+      } else {
+        throw err
+      }
+    }
 
     this.events.emitToBranch(dto.branchId, "order.created", {
       id: order.id,
@@ -241,6 +327,9 @@ export class OrdersService {
       status: order.status,
       total: Number(order.total),
     })
+
+    // Auto-generate KOT tickets for the new order (non-blocking — don't fail the order creation)
+    this.kitchenService.generateKOTsForOrder(order.id, order.branchId).catch(() => {})
 
     return this.serializeOrder(order)
   }
@@ -262,7 +351,82 @@ export class OrdersService {
         },
       },
     })
+
+    const statusPayload = { id: order.id, orderNumber: order.orderNumber, status: order.status }
+    this.events.emitToBranch(order.branchId, "order.status_changed", statusPayload)
+    this.events.emitToOrder(order.id, "order.status_changed", statusPayload)
+
+    // Re-run KOT generation on CONFIRMED — idempotent, handles any items missed on create
+    if (dto.status === "CONFIRMED") {
+      this.kitchenService.generateKOTsForOrder(order.id, order.branchId).catch(() => {})
+    }
+
+    // Auto-deduct inventory when order is served or paid
+    if (dto.status === "SERVED" || dto.status === "PAID") {
+      this.inventoryService.deductForOrder(id).catch(() => {
+        // Non-blocking — don't fail the status update if BOM deduction errors
+      })
+    }
+
     return this.serializeOrder(order)
+  }
+
+  async getReceipt(orderId: string, restaurantId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: true,
+        payments: { where: { status: "COMPLETED" } },
+        restaurant: { select: { name: true } },
+        branch: { select: { name: true } },
+        customer: { select: { name: true, phone: true } },
+        table: { select: { tableNumber: true } },
+      },
+    })
+    if (!order || order.restaurantId !== restaurantId) throw new NotFoundException("Order not found")
+    return {
+      ...order,
+      subtotal: Number(order.subtotal),
+      tax: Number(order.tax),
+      discount: Number(order.discount),
+      serviceCharge: Number(order.serviceCharge),
+      gstRate: Number(order.gstRate),
+      gstAmount: Number(order.gstAmount),
+      total: Number(order.total),
+      items: order.items.map((i: any) => ({
+        ...i,
+        unitPrice: Number(i.unitPrice),
+        totalPrice: Number(i.totalPrice),
+      })),
+      payments: order.payments.map((p: any) => ({ ...p, amount: Number(p.amount) })),
+    }
+  }
+
+  async cancelPublicOrder(orderId: string, customerId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } })
+    if (!order) throw new NotFoundException("Order not found")
+    if (order.customerId !== customerId) throw new ForbiddenException()
+
+    // 2-minute cancellation window
+    const ageMs = Date.now() - order.createdAt.getTime()
+    if (ageMs > 2 * 60 * 1000) {
+      throw new BadRequestException("Cancellation window has expired (2 minutes)")
+    }
+
+    if (order.status !== "PENDING") {
+      throw new BadRequestException("Only PENDING orders can be cancelled")
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: "CANCELLED" },
+    })
+
+    const payload = { id: updated.id, status: "CANCELLED" }
+    this.events.emitToBranch(order.branchId, "order.cancelled", payload)
+    this.events.emitToOrder(order.id, "order.cancelled", payload)
+
+    return { success: true, status: "CANCELLED" }
   }
 
   async cancelOrder(restaurantId: string, id: string) {
@@ -285,6 +449,11 @@ export class OrdersService {
         },
       },
     })
+
+    const cancelPayload = { id: updated.id, orderNumber: updated.orderNumber, status: "CANCELLED" }
+    this.events.emitToBranch(updated.branchId, "order.cancelled", cancelPayload)
+    this.events.emitToOrder(updated.id, "order.cancelled", cancelPayload)
+
     return this.serializeOrder(updated)
   }
 
@@ -314,6 +483,7 @@ export class OrdersService {
       gstAmount: Number(order.gstAmount),
       total: Number(order.total),
       totalAmount: Number(order.total),
+      paxCount: order.paxCount ?? 1,
       tableNumber: order.table?.tableNumber ?? null,
       branchName: order.branch?.name ?? null,
       items: order.items?.map((i: any) => ({

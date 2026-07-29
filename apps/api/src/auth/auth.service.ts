@@ -2,6 +2,7 @@ import {
   Injectable,
   UnauthorizedException,
   BadRequestException,
+  NotFoundException,
 } from "@nestjs/common"
 import { JwtService } from "@nestjs/jwt"
 import * as bcrypt from "bcryptjs"
@@ -12,6 +13,13 @@ import { JwtPayload } from "./interfaces/jwt-payload.interface"
 const LoginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
+})
+
+const CustomerLoginSchema = z.object({
+  restaurantId: z.string().min(1),
+  phone: z.string().min(1),
+  firstName: z.string().min(1),
+  lastName: z.string().optional(),
 })
 
 @Injectable()
@@ -123,6 +131,67 @@ export class AuthService {
     await this.prisma.session.deleteMany({
       where: { userId, token },
     })
+    return { success: true }
+  }
+
+  async customerLogin(body: unknown) {
+    const parsed = CustomerLoginSchema.safeParse(body)
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.flatten())
+    }
+    const { restaurantId, phone, firstName, lastName } = parsed.data
+
+    // Guard: ensure restaurant exists before any Customer upsert (prevents P2003 FK error)
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } })
+    if (!restaurant) throw new NotFoundException("Restaurant not found")
+
+    let customer = await this.prisma.customer.findUnique({
+      where: { restaurantId_phone: { restaurantId, phone } },
+    })
+
+    if (!customer) {
+      customer = await this.prisma.customer.create({
+        data: {
+          restaurantId,
+          phone,
+          name: lastName ? `${firstName} ${lastName}` : firstName,
+        },
+      })
+    }
+
+    const payload: JwtPayload = {
+      sub: customer.id,
+      role: "CUSTOMER",
+      restaurantId,
+    }
+
+    const accessToken = this.jwt.sign(payload, {
+      secret: process.env.JWT_SECRET,
+      expiresIn: process.env.JWT_EXPIRES_IN ?? "15m",
+    })
+
+    return {
+      accessToken,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        restaurantId: customer.restaurantId,
+      },
+    }
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } })
+    if (!user) throw new NotFoundException('User not found')
+
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash)
+    if (!valid) throw new BadRequestException('Current password is incorrect')
+
+    if (newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters')
+
+    const hash = await bcrypt.hash(newPassword, 10)
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } })
     return { success: true }
   }
 

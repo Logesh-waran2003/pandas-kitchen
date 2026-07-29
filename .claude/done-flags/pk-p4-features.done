@@ -1,0 +1,45 @@
+pk-p4-features done — 2026-07-29
+
+## Feature 1: KOT Diff Algorithm
+- Added `generateKOTsForOrder(orderId, branchId)` to KitchenService
+  - Batch-checks existing KOTItems to skip already-KOT'd items (idempotent)
+  - Groups new items by MenuItem.departmentId, creates one KOTTicket per dept group
+  - Emits `kot.created` socket event per ticket
+- KitchenModule now exports KitchenService
+- OrdersModule imports KitchenModule
+- OrdersService injects KitchenService
+  - Calls generateKOTsForOrder (non-blocking) after createOrder
+  - Calls generateKOTsForOrder (non-blocking) when status → CONFIRMED
+
+## Feature 2: Table Merge
+- Added `mergeTables(primaryOrderId, secondaryOrderId, restaurantId)` to TablesService
+  - Moves all secondary items to primary in a transaction
+  - Recalculates primary order totals
+  - Cancels secondary order, frees secondary table (status → AVAILABLE)
+  - Emits `order.merged` socket event
+- Added POST /tables/merge controller endpoint
+- Frontend: MergeTablesModal added to orders/page.tsx
+  - "Merge Tables" button in header
+  - Two dropdowns: primary (keep) + secondary (merge from)
+  - Refreshes on success
+
+## Feature 3: Reservations Module
+- Schema: Added Reservation model + ReservationStatus enum
+  - Back-relations added to Restaurant, Branch, Table
+  - Migration: 20260728211912_add_reservations applied
+- API: Full CRUD module (reservations.service/controller/module/dto)
+  - GET /reservations?branchId=&date=&status=
+  - GET /reservations/:id
+  - POST /reservations
+  - PATCH /reservations/:id (emits reservation.seated on status → SEATED)
+  - DELETE /reservations/:id
+  - Registered in AppModule
+- Frontend: /reservations page with date picker, status tabs, card grid
+  - AddReservationModal with branch/table/datetime/partySize fields
+  - Per-card actions: Seat Now, No Show, Cancel, Mark Completed, Delete
+  - Reservations link added to sidebar (CalendarDays icon, between Shifts and Customers)
+
+## Bonus
+- Created apps/admin/src/app/not-found.tsx (required by Next.js 15, was missing)
+
+Both `bun run build` pass with 0 errors.

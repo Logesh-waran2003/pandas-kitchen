@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { apiFetch } from "@/lib/api"
 import { formatCurrency } from "@/lib/utils"
 import { toast } from "sonner"
-import { Plus, Minus, X, User, CreditCard, Banknote, Smartphone, Globe } from "lucide-react"
+import { Plus, Minus, X, User, CreditCard, Banknote, Smartphone, Globe, SplitSquareHorizontal } from "lucide-react"
 
 interface Category { id: string; name: string }
 interface MenuItem { id: string; name: string; price: number; isVeg: boolean; isAvailable: boolean; categoryId: string }
@@ -20,6 +20,7 @@ interface CartItem {
   quantity: number
   variantId?: string
   variantName?: string
+  notes: string
 }
 
 type OrderType = "DINE_IN" | "TAKEAWAY" | "DELIVERY"
@@ -76,6 +77,130 @@ function VariantModal({ item, variants, onSelect, onClose }: VariantModalProps) 
   )
 }
 
+type PersonKey = "p1" | "p2" | "p3"
+
+interface SplitBillModalProps {
+  cart: CartItem[]
+  subtotal: number
+  gstRate: number
+  serviceChargePct: number
+  discountAmt: number
+  onClose: () => void
+}
+
+function SplitBillModal({ cart, subtotal, gstRate, serviceChargePct, discountAmt, onClose }: SplitBillModalProps) {
+  const [personCount, setPersonCount] = useState(2)
+  // assignment: itemKey → person index (0-based)
+  const [assignments, setAssignments] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {}
+    cart.forEach((_, i) => { init[i] = 0 })
+    return init
+  })
+
+  const persons = Array.from({ length: personCount }, (_, i) => i)
+  const personLabels = ["Person 1", "Person 2", "Person 3", "Person 4"]
+
+  const afterDiscount = Math.max(0, subtotal - discountAmt)
+  const scRate = serviceChargePct / 100
+  const gstPct = gstRate / 100
+
+  const personTotals = persons.map(p => {
+    const items = cart.filter((_, i) => (assignments[i] ?? 0) === p)
+    const itemsSubtotal = items.reduce((s, c) => s + c.price * c.quantity, 0)
+    const ratio = subtotal > 0 ? itemsSubtotal / subtotal : 0
+    const scShare = afterDiscount * scRate * ratio
+    const gstBase = (afterDiscount * ratio) + scShare
+    const gstShare = gstBase * gstPct
+    return {
+      label: personLabels[p],
+      items,
+      subtotal: itemsSubtotal,
+      gstShare: Math.round(gstShare * 100) / 100,
+      total: Math.round((itemsSubtotal - discountAmt * ratio + scShare + gstShare) * 100) / 100,
+    }
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4 shrink-0">
+          <h3 className="text-lg font-semibold text-gray-900">Split Bill</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* Person count selector */}
+        <div className="flex items-center gap-2 mb-4 shrink-0">
+          <span className="text-sm text-gray-600">Split between:</span>
+          {[2, 3, 4].map(n => (
+            <button
+              key={n}
+              onClick={() => setPersonCount(n)}
+              className={`w-8 h-8 rounded-full text-sm font-semibold transition-colors ${personCount === n ? "bg-orange-500 text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+            >{n}</button>
+          ))}
+        </div>
+
+        {/* Item assignments */}
+        <div className="overflow-y-auto flex-1 mb-4">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2 text-gray-500 font-medium">Item</th>
+                {persons.map(p => (
+                  <th key={p} className="text-center px-2 py-2 text-gray-500 font-medium text-xs">{personLabels[p]}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {cart.map((item, i) => (
+                <tr key={`${item.menuItemId}-${i}`} className="border-t border-gray-100">
+                  <td className="px-3 py-2">
+                    <p className="font-medium text-gray-800">{item.name}</p>
+                    {item.variantName && <p className="text-xs text-gray-400">{item.variantName}</p>}
+                    <p className="text-xs text-gray-500">×{item.quantity} — {formatCurrency(item.price * item.quantity)}</p>
+                  </td>
+                  {persons.map(p => (
+                    <td key={p} className="text-center px-2 py-2">
+                      <input
+                        type="radio"
+                        name={`item-${i}`}
+                        checked={(assignments[i] ?? 0) === p}
+                        onChange={() => setAssignments(prev => ({ ...prev, [i]: p }))}
+                        className="accent-orange-500 w-4 h-4"
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Per-person totals */}
+        <div className="border-t border-gray-200 pt-3 shrink-0">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Split Summary</p>
+          <div className="grid grid-cols-2 gap-2">
+            {personTotals.map((pt, i) => (
+              <div key={i} className="bg-orange-50 rounded-lg p-3">
+                <p className="text-xs font-semibold text-orange-700 mb-1">{pt.label}</p>
+                <p className="text-xs text-gray-500">Items: {formatCurrency(pt.subtotal)}</p>
+                <p className="text-xs text-gray-500">GST: {formatCurrency(pt.gstShare)}</p>
+                <p className="text-sm font-bold text-orange-600 mt-1">{formatCurrency(pt.total)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-4 shrink-0">
+          <button onClick={onClose} className="px-4 py-2 text-sm bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function POSPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])
@@ -100,9 +225,14 @@ export default function POSPage() {
   const [serviceChargePct, setServiceChargePct] = useState(0)
   const [gstRate, setGstRate] = useState(5)
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH")
+  const [cashReceived, setCashReceived] = useState(0)
+  const [paymentRef, setPaymentRef] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
   const [variantModal, setVariantModal] = useState<{ item: MenuItem; variants: Variant[] } | null>(null)
+  const [showSplitBill, setShowSplitBill] = useState(false)
+  const [paxCount, setPaxCount] = useState(1)
+  const [expandedNoteIdx, setExpandedNoteIdx] = useState<number | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -121,6 +251,8 @@ export default function POSPage() {
       setItemLoading(false)
     })
   }, [])
+
+  useEffect(() => { setCashReceived(0); setPaymentRef("") }, [paymentMethod])
 
   useEffect(() => {
     if (!selectedBranchId || orderType !== "DINE_IN") { setTables([]); setSelectedTableId(""); return }
@@ -158,8 +290,12 @@ export default function POSPage() {
       const key = `${item.id}-${variantId ?? ""}`
       const existing = prev.find(c => `${c.menuItemId}-${c.variantId ?? ""}` === key)
       if (existing) return prev.map(c => `${c.menuItemId}-${c.variantId ?? ""}` === key ? { ...c, quantity: c.quantity + 1 } : c)
-      return [...prev, { menuItemId: item.id, name: item.name, price, quantity: 1, variantId, variantName }]
+      return [...prev, { menuItemId: item.id, name: item.name, price, quantity: 1, variantId, variantName, notes: "" }]
     })
+  }
+
+  function updateNote(idx: number, notes: string) {
+    setCart(prev => prev.map((c, i) => i === idx ? { ...c, notes } : c))
   }
 
   function updateQty(idx: number, delta: number) {
@@ -196,15 +332,16 @@ export default function POSPage() {
           discountType,
           serviceChargePercent: serviceChargePct,
           gstRate,
+          paxCount,
           notes: "",
-          items: cart.map(c => ({ menuItemId: c.menuItemId, quantity: c.quantity, variantId: c.variantId, notes: "" })),
+          items: cart.map(c => ({ menuItemId: c.menuItemId, quantity: c.quantity, variantId: c.variantId, notes: c.notes || undefined })),
         }),
       })
 
       if (payNow) {
         await apiFetch("/payments", {
           method: "POST",
-          body: JSON.stringify({ orderId: order.id, method: paymentMethod, amount: total }),
+          body: JSON.stringify({ orderId: order.id, method: paymentMethod, amount: total, reference: paymentRef || undefined }),
         })
         toast.success(`Order #${order.orderNumber} placed & paid`)
       } else {
@@ -218,6 +355,10 @@ export default function POSPage() {
       setDiscount(0)
       setServiceChargePct(0)
       setGstRate(5)
+      setPaxCount(1)
+      setExpandedNoteIdx(null)
+      setCashReceived(0)
+      setPaymentRef("")
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to place order")
     } finally {
@@ -323,6 +464,23 @@ export default function POSPage() {
               {tables.map(t => <option key={t.id} value={t.id}>{t.tableNumber}</option>)}
             </select>
           )}
+          {/* Covers / Pax count */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-600 font-medium">Covers</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPaxCount(n => Math.max(1, n - 1))}
+                className="w-6 h-6 rounded border border-gray-200 flex items-center justify-center hover:bg-gray-100"
+              ><Minus className="w-3 h-3" /></button>
+              <span className="text-sm font-semibold w-5 text-center">{paxCount}</span>
+              <button
+                type="button"
+                onClick={() => setPaxCount(n => Math.min(20, n + 1))}
+                className="w-6 h-6 rounded border border-gray-200 flex items-center justify-center hover:bg-gray-100"
+              ><Plus className="w-3 h-3" /></button>
+            </div>
+          </div>
           <div className="relative">
             <input
               type="text"
@@ -356,9 +514,32 @@ export default function POSPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium text-gray-800 truncate">{item.name}</p>
                       {item.variantName && <p className="text-xs text-gray-500">{item.variantName}</p>}
+                      {item.notes && expandedNoteIdx !== idx && (
+                        <p className="text-xs text-gray-400 italic truncate">{item.notes}</p>
+                      )}
                     </div>
-                    <button onClick={() => removeItem(idx)} className="text-gray-300 hover:text-red-400 shrink-0"><X className="w-3 h-3" /></button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => setExpandedNoteIdx(expandedNoteIdx === idx ? null : idx)}
+                        className={`text-gray-300 hover:text-blue-400 ${item.notes ? "text-blue-400" : ""}`}
+                        title="Add note"
+                      >
+                        <span className="text-xs">✎</span>
+                      </button>
+                      <button onClick={() => removeItem(idx)} className="text-gray-300 hover:text-red-400"><X className="w-3 h-3" /></button>
+                    </div>
                   </div>
+                  {expandedNoteIdx === idx && (
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="Note for this item…"
+                      value={item.notes}
+                      onChange={e => updateNote(idx, e.target.value)}
+                      onBlur={() => setExpandedNoteIdx(null)}
+                      className="mt-1.5 w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                    />
+                  )}
                   <div className="flex items-center justify-between mt-1.5">
                     <div className="flex items-center gap-1">
                       <button onClick={() => updateQty(idx, -1)} className="w-5 h-5 rounded border border-gray-200 flex items-center justify-center hover:bg-gray-100"><Minus className="w-2.5 h-2.5" /></button>
@@ -404,6 +585,15 @@ export default function POSPage() {
 
         {/* Payment */}
         <div className="border-t border-gray-200 p-3 space-y-2">
+          {cart.length > 0 && (
+            <button
+              onClick={() => setShowSplitBill(true)}
+              className="w-full flex items-center justify-center gap-2 border border-orange-200 text-orange-600 py-2 rounded-lg text-sm font-medium hover:bg-orange-50 transition-colors"
+            >
+              <SplitSquareHorizontal className="w-4 h-4" />
+              Split Bill
+            </button>
+          )}
           <div className="grid grid-cols-4 gap-1">
             {([["CASH", Banknote], ["CARD", CreditCard], ["UPI", Smartphone], ["ONLINE", Globe]] as [PaymentMethod, React.ElementType][]).map(([method, Icon]) => (
               <button key={method} onClick={() => setPaymentMethod(method)}
@@ -413,6 +603,48 @@ export default function POSPage() {
               </button>
             ))}
           </div>
+          {/* Payment mode details */}
+          {paymentMethod === "CASH" && (
+            <div className="space-y-1">
+              <input
+                type="number"
+                min={0}
+                value={cashReceived || ""}
+                onChange={e => setCashReceived(Number(e.target.value))}
+                placeholder="Amount received"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
+              />
+              {cashReceived > 0 && cashReceived >= total && (
+                <p className="text-xs text-green-600 font-medium px-1">
+                  Change: {formatCurrency(cashReceived - total)}
+                </p>
+              )}
+              {cashReceived > 0 && cashReceived < total && (
+                <p className="text-xs text-red-500 px-1">
+                  Short by {formatCurrency(total - cashReceived)}
+                </p>
+              )}
+            </div>
+          )}
+          {paymentMethod === "UPI" && (
+            <input
+              type="text"
+              value={paymentRef}
+              onChange={e => setPaymentRef(e.target.value)}
+              placeholder="UPI reference (optional)"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
+            />
+          )}
+          {paymentMethod === "CARD" && (
+            <input
+              type="text"
+              value={paymentRef}
+              onChange={e => setPaymentRef(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              placeholder="Card last 4 digits (optional)"
+              inputMode="numeric"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
+            />
+          )}
           <button
             onClick={() => placeOrder(true)}
             disabled={submitting || cart.length === 0}
@@ -433,6 +665,18 @@ export default function POSPage() {
           variants={variantModal.variants}
           onSelect={(item, variant) => addToCart(item, variant)}
           onClose={() => setVariantModal(null)}
+        />
+      )}
+
+      {/* Split bill modal */}
+      {showSplitBill && (
+        <SplitBillModal
+          cart={cart}
+          subtotal={subtotal}
+          gstRate={gstRate}
+          serviceChargePct={serviceChargePct}
+          discountAmt={discountAmt}
+          onClose={() => setShowSplitBill(false)}
         />
       )}
     </div>

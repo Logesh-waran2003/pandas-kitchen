@@ -6,6 +6,8 @@ interface AuthUser {
   name: string
   email: string
   role: string
+  restaurantId?: string
+  branchId?: string
 }
 
 interface AuthStore {

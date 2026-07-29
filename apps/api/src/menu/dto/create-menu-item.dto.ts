@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger"
-import { IsString, IsNotEmpty, IsOptional, IsNumber, IsPositive, IsBoolean, IsInt, Min } from "class-validator"
+import { IsString, IsNotEmpty, IsOptional, IsNumber, IsPositive, IsBoolean, IsInt, Min, IsArray } from "class-validator"
 
 export class CreateMenuItemDto {
   @ApiProperty({ example: "clx..." })
@@ -43,4 +43,15 @@ export class CreateMenuItemDto {
   @IsInt()
   @Min(0)
   sortOrder?: number
+
+  @ApiPropertyOptional({ example: "clx..." })
+  @IsOptional()
+  @IsString()
+  departmentId?: string
+
+  @ApiPropertyOptional({ example: ['gluten', 'dairy'] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  allergens?: string[]
 }

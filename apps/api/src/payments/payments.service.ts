@@ -5,13 +5,16 @@ import {
   BadRequestException,
 } from "@nestjs/common"
 import { PrismaService } from "../prisma/prisma.service"
-import { PaymentStatus } from "@prisma/client"
+import { EventsGateway } from "../events/events.gateway"
 import { CreatePaymentDto } from "./dto/create-payment.dto"
 import { Decimal } from "@prisma/client/runtime/library"
 
 @Injectable()
 export class PaymentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventsGateway,
+  ) {}
 
   async listPayments(restaurantId: string, orderId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } })
@@ -66,10 +69,62 @@ export class PaymentsService {
         data: { paymentStatus, status: orderStatus },
       })
 
-      return created
+      return { created, paymentStatus, orderStatus, totalPaid, orderTotal }
     })
 
-    return this.serialize(payment)
+    const serialized = this.serialize(payment.created)
+
+    // Emit payment.created to order room
+    this.events.emitToOrder(dto.orderId, "payment.created", {
+      id: serialized.id,
+      orderId: dto.orderId,
+      amount: serialized.amount,
+      method: serialized.method,
+      status: serialized.status,
+    })
+
+    // If fully paid, also emit payment.completed to branch + order rooms
+    if (payment.paymentStatus === "PAID") {
+      const completedPayload = {
+        orderId: dto.orderId,
+        totalPaid: Number(payment.totalPaid),
+        orderStatus: payment.orderStatus,
+      }
+      this.events.emitToBranch(order.branchId, "payment.completed", completedPayload)
+      this.events.emitToOrder(dto.orderId, "payment.completed", completedPayload)
+    }
+
+    return serialized
+  }
+
+  async splitBill(orderId: string, splits: Array<{ items: string[]; extraAmount?: number }>, restaurantId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true },
+    })
+    if (!order || order.restaurantId !== restaurantId) throw new NotFoundException('Order not found')
+
+    const result = splits.map((split, i) => {
+      const splitItems = order.items.filter(item => split.items.includes(item.id))
+      const itemsTotal = splitItems.reduce((s, item) => s + Number(item.totalPrice), 0)
+      const extra = split.extraAmount ?? 0
+      const subtotal = Number(order.subtotal)
+      const taxRatio = subtotal > 0 ? itemsTotal / subtotal : 0
+      const taxShare = Number(order.tax) * taxRatio
+      return {
+        splitIndex: i + 1,
+        items: splitItems.map(it => ({
+          id: it.id,
+          quantity: it.quantity,
+          price: Number(it.totalPrice),
+        })),
+        subtotal: itemsTotal,
+        taxShare: Math.round(taxShare * 100) / 100,
+        total: Math.round((itemsTotal + taxShare + extra) * 100) / 100,
+      }
+    })
+
+    return { orderId, splits: result, orderTotal: Number(order.total) }
   }
 
   async refundPayment(restaurantId: string, id: string) {

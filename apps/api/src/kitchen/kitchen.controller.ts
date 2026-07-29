@@ -74,12 +74,14 @@ export class KitchenController {
   @ApiOperation({ summary: "List KOT tickets for a branch" })
   @ApiQuery({ name: "branchId", required: true })
   @ApiQuery({ name: "status", required: false, enum: ["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"] })
+  @ApiQuery({ name: "departmentId", required: false })
   listKOT(
     @CurrentUser("restaurantId") restaurantId: string,
     @Query("branchId") branchId: string,
     @Query("status") status?: string,
+    @Query("departmentId") departmentId?: string,
   ) {
-    return this.kitchenService.listKOT(restaurantId, branchId, status)
+    return this.kitchenService.listKOT(restaurantId, branchId, status, departmentId)
   }
 
   @Get("kot/:id")

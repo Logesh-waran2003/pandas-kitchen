@@ -1,0 +1,30 @@
+P3 features complete — 2026-07-29
+
+## Feature 1: Table Transfer
+- Backend: TablesService.transferTable() — validates order is active, target table is AVAILABLE, runs $transaction to swap tableId + flip statuses, emits socket events
+- Controller: PATCH /tables/transfer
+- Frontend (orders/page.tsx): TransferTableModal — loads non-current tables for branch, calls PATCH /tables/transfer; ArrowRightLeft button shown for DINE_IN non-closed orders; Receipt button for PAID orders
+
+## Feature 2: Bill Split
+- Backend: PaymentsService.splitBill() — distributes tax proportionally by item subtotal ratio, returns per-person breakdown
+- Controller: POST /payments/split-bill
+- Frontend (pos/page.tsx): SplitBillModal — 2/3/4-person split, radio per item, live per-person totals with proportional tax; Split Bill button shown when cart has items
+
+## Feature 3: Inventory BOM Deduction
+- Schema: Added MenuItemIngredient model (menuItemId, inventoryItemId, quantity); added ingredients[] to MenuItem, usedIn[] to InventoryItem
+- Migration: 20260728210234_add_bom_ingredients
+- Backend: InventoryService.deductForOrder() — called non-blocking from OrdersService.updateStatus() when status → SERVED or PAID; also added listIngredients/addIngredient/removeIngredient methods
+- Controller: GET /inventory/ingredients/:menuItemId, POST /inventory/ingredients, DELETE /inventory/ingredients/:id
+- Orders module now imports InventoryModule
+- Frontend (menu/page.tsx): IngredientsDrawer — slide-in right panel per item showing linked ingredients with qty/unit, add form with inventory dropdown, delete button; FlaskConical icon button on each item card
+
+## Feature 4: Digital Receipt
+- Backend: OrdersService.getReceipt() — includes items, COMPLETED payments, restaurant/branch/customer/table
+- Controller: GET /orders/:id/receipt
+- Frontend (orders/[orderId]/receipt/page.tsx): Thermal-style receipt layout — restaurant/branch header, order meta, item list, pricing breakdown, payments section, print button with @media print CSS
+- Customer-web: "View Receipt" link shown for SERVED/PAID orders, opens admin receipt page in new tab
+
+## Build status
+- apps/api: ✓ nest build clean
+- apps/admin: ✓ next build clean (16 routes)
+- apps/customer-web: ✓ next build clean (4 routes)

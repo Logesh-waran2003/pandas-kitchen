@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from "@nestjs/swagger"
 import { TablesService } from "./tables.service"
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard"
 import { CurrentUser } from "../auth/decorators/current-user.decorator"
+import { Public } from "../auth/decorators/public.decorator"
 import { CreateTableDto } from "./dto/create-table.dto"
 import { UpdateTableDto } from "./dto/update-table.dto"
 import { UpdateTableStatusDto } from "./dto/update-table-status.dto"
@@ -23,6 +24,22 @@ import { UpdateTableStatusDto } from "./dto/update-table-status.dto"
 @Controller("tables")
 export class TablesController {
   constructor(private tablesService: TablesService) {}
+
+  @Public()
+  @Get(":id/public")
+  @ApiOperation({ summary: "Public table info for QR landing" })
+  getPublicTable(@Param("id") id: string) {
+    return this.tablesService.getPublicTable(id)
+  }
+
+  @Get(":id/qr")
+  @ApiOperation({ summary: "Get QR code data URL for a table" })
+  getQRCode(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Param("id") id: string,
+  ) {
+    return this.tablesService.getQRCode(id, restaurantId)
+  }
 
   @Get()
   @ApiOperation({ summary: "List all tables for a branch" })
@@ -41,6 +58,26 @@ export class TablesController {
     @Body() dto: CreateTableDto,
   ) {
     return this.tablesService.createTable(restaurantId, dto)
+  }
+
+  @Patch("transfer")
+  @ApiOperation({ summary: "Transfer an active order to a different table" })
+  transferTable(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Body("orderId") orderId: string,
+    @Body("newTableId") newTableId: string,
+  ) {
+    return this.tablesService.transferTable(orderId, newTableId, restaurantId)
+  }
+
+  @Post("merge")
+  @ApiOperation({ summary: "Merge two tables — move secondary order items into primary, cancel secondary" })
+  mergeTables(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Body("primaryOrderId") primaryOrderId: string,
+    @Body("secondaryOrderId") secondaryOrderId: string,
+  ) {
+    return this.tablesService.mergeTables(primaryOrderId, secondaryOrderId, restaurantId)
   }
 
   @Patch(":id")

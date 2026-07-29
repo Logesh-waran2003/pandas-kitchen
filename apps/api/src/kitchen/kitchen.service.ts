@@ -61,9 +61,10 @@ export class KitchenService {
 
   // ── KOT Tickets ──────────────────────────────────────────────────────────────
 
-  async listKOT(restaurantId: string, branchId: string, status?: string) {
+  async listKOT(restaurantId: string, branchId: string, status?: string, departmentId?: string) {
     const where: any = { branchId, branch: { restaurantId } }
     if (status) where.status = status as KOTStatus
+    if (departmentId) where.items = { some: { departmentId } }
 
     const tickets = await this.prisma.kOTTicket.findMany({
       where,
@@ -110,6 +111,73 @@ export class KitchenService {
     if (!branch || branch.restaurantId !== restaurantId) throw new ForbiddenException()
 
     return ticket
+  }
+
+  // ── Auto KOT generation ──────────────────────────────────────────────────────
+
+  async generateKOTsForOrder(orderId: string, branchId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: { menuItem: { select: { id: true, departmentId: true } } },
+        },
+      },
+    })
+    if (!order || order.items.length === 0) return
+
+    // Batch-check which items already have a KOT item (idempotency)
+    const existing = await this.prisma.kOTItem.findMany({
+      where: { orderItemId: { in: order.items.map((i) => i.id) } },
+      select: { orderItemId: true },
+    })
+    const alreadyKotted = new Set(existing.map((k) => k.orderItemId))
+
+    const newItems = order.items.filter((i) => !alreadyKotted.has(i.id))
+    if (newItems.length === 0) return
+
+    // Group by departmentId (null items go to 'general' bucket → single KOT)
+    const byDept: Record<string, typeof newItems> = {}
+    for (const item of newItems) {
+      const key = item.menuItem?.departmentId ?? "general"
+      if (!byDept[key]) byDept[key] = []
+      byDept[key].push(item)
+    }
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "")
+
+    for (const [deptId, items] of Object.entries(byDept)) {
+      if (items.length === 0) continue
+      const rand = String(Math.floor(1000 + Math.random() * 9000))
+      const ticketNumber = `KOT-${dateStr}-${rand}`
+
+      const ticket = await this.prisma.kOTTicket.create({
+        data: {
+          orderId,
+          branchId,
+          ticketNumber,
+          items: {
+            create: items.map((item) => ({
+              orderItemId: item.id,
+              departmentId: deptId !== "general" ? deptId : null,
+            })),
+          },
+        },
+        include: {
+          order: { select: { id: true, orderNumber: true } },
+          items: {
+            include: {
+              orderItem: {
+                include: { menuItem: { select: { id: true, name: true } } },
+              },
+              department: { select: { id: true, name: true } },
+            },
+          },
+        },
+      })
+
+      this.events.emitToKitchen(ticket.branchId, "kot.created", ticket)
+    }
   }
 
   async createKOT(restaurantId: string, dto: CreateKOTDto) {

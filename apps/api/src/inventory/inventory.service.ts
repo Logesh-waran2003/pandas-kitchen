@@ -110,6 +110,90 @@ export class InventoryService {
     })
   }
 
+  // ── BOM / Ingredient management ──────────────────────────────────────────
+
+  async listIngredients(restaurantId: string, menuItemId: string) {
+    // Verify the menu item belongs to this restaurant
+    const menuItem = await this.prisma.menuItem.findUnique({ where: { id: menuItemId } })
+    if (!menuItem || menuItem.restaurantId !== restaurantId) throw new NotFoundException("Menu item not found")
+
+    return this.prisma.menuItemIngredient.findMany({
+      where: { menuItemId },
+      include: {
+        inventoryItem: { select: { id: true, name: true, unit: true, currentStock: true } },
+      },
+    })
+  }
+
+  async addIngredient(restaurantId: string, menuItemId: string, inventoryItemId: string, quantity: number) {
+    const menuItem = await this.prisma.menuItem.findUnique({ where: { id: menuItemId } })
+    if (!menuItem || menuItem.restaurantId !== restaurantId) throw new NotFoundException("Menu item not found")
+
+    const invItem = await this.prisma.inventoryItem.findUnique({ where: { id: inventoryItemId } })
+    if (!invItem || invItem.restaurantId !== restaurantId) throw new NotFoundException("Inventory item not found")
+
+    return this.prisma.menuItemIngredient.create({
+      data: { menuItemId, inventoryItemId, quantity },
+      include: {
+        inventoryItem: { select: { id: true, name: true, unit: true } },
+      },
+    })
+  }
+
+  async removeIngredient(restaurantId: string, id: string) {
+    const ingredient = await this.prisma.menuItemIngredient.findUnique({
+      where: { id },
+      include: { menuItem: true },
+    })
+    if (!ingredient) throw new NotFoundException("Ingredient link not found")
+    if (ingredient.menuItem.restaurantId !== restaurantId) throw new ForbiddenException()
+
+    await this.prisma.menuItemIngredient.delete({ where: { id } })
+    return { success: true }
+  }
+
+  // ── Auto-deduct stock when an order is served / closed ───────────────────
+
+  async deductForOrder(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            menuItem: { include: { ingredients: true } },
+          },
+        },
+      },
+    })
+    if (!order) return
+
+    const deductions: Array<{ inventoryItemId: string; qty: number }> = []
+
+    for (const orderItem of order.items) {
+      for (const ingredient of (orderItem.menuItem?.ingredients ?? [])) {
+        const qty = Number(ingredient.quantity) * orderItem.quantity
+        const existing = deductions.find(d => d.inventoryItemId === ingredient.inventoryItemId)
+        if (existing) existing.qty += qty
+        else deductions.push({ inventoryItemId: ingredient.inventoryItemId, qty })
+      }
+    }
+
+    for (const d of deductions) {
+      await this.prisma.inventoryItem.update({
+        where: { id: d.inventoryItemId },
+        data: { currentStock: { decrement: d.qty } },
+      })
+      await this.prisma.stockAdjustment.create({
+        data: {
+          inventoryItemId: d.inventoryItemId,
+          type: "ORDER_DEDUCTION",
+          quantity: d.qty,
+          note: `Auto-deducted for order ${orderId}`,
+        },
+      })
+    }
+  }
+
   private async assertOwner(restaurantId: string, id: string) {
     const item = await this.prisma.inventoryItem.findUnique({ where: { id } })
     if (!item) throw new NotFoundException("Inventory item not found")

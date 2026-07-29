@@ -1,0 +1,40 @@
+# pk-fixes-tests done flag
+Completed: 2026-07-29
+
+## Fixes applied
+
+### Fix 1: Customer order track endpoint + JWT customer support
+- `jwt.strategy.ts`: added CUSTOMER role branch — validates against `customer` table instead of `user` table
+- `orders.service.ts`: added `findOneForTracking(orderId, customerId)` — verifies customer owns order, returns track shape
+- `orders.controller.ts`: added `GET :id/track` endpoint using JwtAuthGuard (CUSTOMER JWT accepted)
+- `order/[orderId]/page.tsx`: on mount, tries localStorage first for instant render, then fetches `/orders/:id/track` with customer_token; graceful degradation on 401/network error
+
+### Fix 2: Customer login FK error
+- `auth.service.ts`: added `NotFoundException` import; added restaurant existence check before any customer upsert — throws `NotFoundException("Restaurant not found")` if restaurant doesn't exist, preventing P2003
+
+### Fix 3: Order number collision
+- `orders.service.ts`: replaced `Math.floor(1000 + Math.random() * 9000)` with `Math.random().toString(36).slice(2,6).toUpperCase()` for stronger entropy; wrapped transaction in retry-on-P2002 pattern
+
+### Fixes 4-7: Already implemented
+- Fix 4 (session cleanup): already present in auth.service.ts lines 67-73
+- Fix 5 (analytics IST timezone): already present in analytics.service.ts
+- Fix 6 (customer totalOrders/totalSpent): already present inside $transaction in orders.service.ts
+- Fix 7 (customer totalAmount alias): already present in customers.service.ts
+
+## Tests
+
+### Setup
+- Installed: jest@^29, @types/jest@^29, ts-jest@^29, supertest@^7, @types/supertest@^6
+- Created: `jest.config.js` with ts-jest transform, `src` rootDir
+- Added test scripts to package.json: `test`, `test:watch`, `test:cov`
+
+### Test files written
+- `src/auth/auth.service.spec.ts` — 8 cases: login (valid, wrong password, unknown email, inactive, bad body), refresh (valid, not found, expired), customerLogin (restaurant not found, new phone, existing phone, missing field)
+- `src/orders/orders.service.spec.ts` — 6 cases: 2-item order pricing, flat discount, percent discount, GST, customer stats increment, invalid menuItemId
+- `src/payments/payments.service.spec.ts` — 4 cases: full payment → PAID, partial payment → PARTIAL, already refunded → BadRequest, valid refund → creates REFUND- record
+- `src/analytics/analytics.service.spec.ts` — 4 cases: customer.count used (not user), cancelled excluded from revenue, cancelled excluded from count, correct return shape
+- `src/menu/menu.service.spec.ts` — 4 cases: has items → BadRequest, 0 items → delete + success, not found → NotFound, wrong restaurant → Forbidden
+
+### Result
+Build: ✅ clean (0 errors)
+Tests: ✅ 32 passed, 0 failed, 5 suites

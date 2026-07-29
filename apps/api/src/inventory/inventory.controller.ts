@@ -42,6 +42,35 @@ export class InventoryController {
     return this.inventoryService.getLowStockItems(restaurantId, branchId)
   }
 
+  @Get("ingredients/:menuItemId")
+  @ApiOperation({ summary: "List BOM ingredients for a menu item" })
+  listIngredients(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Param("menuItemId") menuItemId: string,
+  ) {
+    return this.inventoryService.listIngredients(restaurantId, menuItemId)
+  }
+
+  @Post("ingredients")
+  @ApiOperation({ summary: "Link an inventory item to a menu item as an ingredient" })
+  addIngredient(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Body("menuItemId") menuItemId: string,
+    @Body("inventoryItemId") inventoryItemId: string,
+    @Body("quantity") quantity: number,
+  ) {
+    return this.inventoryService.addIngredient(restaurantId, menuItemId, inventoryItemId, quantity)
+  }
+
+  @Delete("ingredients/:id")
+  @ApiOperation({ summary: "Remove an ingredient link from a menu item" })
+  removeIngredient(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Param("id") id: string,
+  ) {
+    return this.inventoryService.removeIngredient(restaurantId, id)
+  }
+
   @Post()
   @ApiOperation({ summary: "Create inventory item" })
   createItem(

@@ -13,6 +13,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from "@nestjs/swagger"
 import { OrdersService } from "./orders.service"
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard"
 import { CurrentUser } from "../auth/decorators/current-user.decorator"
+import { Public } from "../auth/decorators/public.decorator"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
 
@@ -23,18 +24,64 @@ import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
 export class OrdersController {
   constructor(private ordersService: OrdersService) {}
 
+  @Public()
+  @Post("public")
+  @ApiOperation({ summary: "Public: place an order from QR table (no auth required)" })
+  createPublicOrder(@Body() dto: CreateOrderDto) {
+    return this.ordersService.createPublicOrder(dto)
+  }
+
+  @Public()
+  @Patch(":id/cancel")
+  @ApiOperation({ summary: "Customer: cancel own PENDING order within 2 minutes" })
+  cancelPublicOrder(
+    @Param("id") id: string,
+    @Body("customerId") customerId: string,
+  ) {
+    return this.ordersService.cancelPublicOrder(id, customerId)
+  }
+
   @Get()
   @ApiOperation({ summary: "List orders with optional filters" })
   @ApiQuery({ name: "branchId", required: false })
   @ApiQuery({ name: "status", required: false })
   @ApiQuery({ name: "date", required: false, description: "YYYY-MM-DD" })
+  @ApiQuery({ name: "page", required: false, description: "Page number (default: 1)" })
+  @ApiQuery({ name: "limit", required: false, description: "Items per page (default: 20, max: 100)" })
   listOrders(
     @CurrentUser("restaurantId") restaurantId: string,
     @Query("branchId") branchId?: string,
     @Query("status") status?: string,
     @Query("date") date?: string,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
   ) {
-    return this.ordersService.listOrders(restaurantId, branchId, status, date)
+    return this.ordersService.listOrders(
+      restaurantId,
+      branchId,
+      status,
+      date,
+      page ? Number(page) : undefined,
+      limit ? Number(limit) : undefined,
+    )
+  }
+
+  @Get(":id/receipt")
+  @ApiOperation({ summary: "Get receipt data for an order" })
+  getReceipt(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Param("id") id: string,
+  ) {
+    return this.ordersService.getReceipt(id, restaurantId)
+  }
+
+  @Get(":id/track")
+  @ApiOperation({ summary: "Track a single order by customer JWT" })
+  trackOrder(
+    @CurrentUser("sub") customerId: string,
+    @Param("id") id: string,
+  ) {
+    return this.ordersService.findOneForTracking(id, customerId)
   }
 
   @Get(":id")

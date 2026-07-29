@@ -11,6 +11,7 @@ import { InventoryService } from "../inventory/inventory.service"
 import { KitchenService } from "../kitchen/kitchen.service"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
+import { EditOrderDto } from "./dto/edit-order.dto"
 import { OrderStatus, OrderType } from "@prisma/client"
 import { Decimal } from "@prisma/client/runtime/library"
 
@@ -411,6 +412,19 @@ export class OrdersService {
     }
   }
 
+  async submitRating(orderId: string, rating: number, customerId: string) {
+    if (!rating || rating < 1 || rating > 5) throw new BadRequestException('Rating must be 1-5')
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } })
+    if (!order) throw new NotFoundException('Order not found')
+    if (order.customerId !== customerId) throw new ForbiddenException()
+    if (!['SERVED', 'PAID'].includes(order.status as string)) {
+      throw new BadRequestException('Can only rate served or paid orders')
+    }
+    if (order.rating) throw new BadRequestException('Already rated')
+    await this.prisma.order.update({ where: { id: orderId }, data: { rating } })
+    return { success: true }
+  }
+
   async cancelPublicOrder(orderId: string, customerId: string) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } })
     if (!order) throw new NotFoundException("Order not found")
@@ -463,6 +477,68 @@ export class OrdersService {
     this.events.emitToBranch(updated.branchId, "order.cancelled", cancelPayload)
     this.events.emitToOrder(updated.id, "order.cancelled", cancelPayload)
 
+    return this.serializeOrder(updated)
+  }
+
+  async editOrder(restaurantId: string, id: string, dto: EditOrderDto) {
+    const order = await this.assertOwner(restaurantId, id)
+    if (!['PENDING', 'CONFIRMED'].includes(order.status as string)) {
+      throw new BadRequestException('Can only edit PENDING or CONFIRMED orders')
+    }
+    if (dto.items.length === 0) {
+      throw new BadRequestException('Order must have at least one item')
+    }
+
+    // Fetch menu item prices
+    const menuItemIds = dto.items.map((i) => i.menuItemId)
+    const menuItems = await this.prisma.menuItem.findMany({
+      where: { id: { in: menuItemIds } },
+      select: { id: true, price: true },
+    })
+    const priceMap = new Map(menuItems.map((m) => [m.id, m.price]))
+
+    // Delete KOTItems first (FK constraint), then OrderItems
+    const existingItems = await this.prisma.orderItem.findMany({ where: { orderId: id }, select: { id: true } })
+    const itemIds = existingItems.map((i) => i.id)
+    await this.prisma.kOTItem.deleteMany({ where: { orderItemId: { in: itemIds } } })
+    await this.prisma.orderItemAddon.deleteMany({ where: { orderItemId: { in: itemIds } } })
+    await this.prisma.orderItem.deleteMany({ where: { orderId: id } })
+
+    // Recalculate totals
+    let subtotal = new Decimal(0)
+    const newItems = dto.items.map((item) => {
+      const price = priceMap.get(item.menuItemId) ?? new Decimal(0)
+      const lineTotal = new Decimal(price).mul(item.quantity)
+      subtotal = subtotal.add(lineTotal)
+      return {
+        orderId: id,
+        menuItemId: item.menuItemId,
+        quantity: item.quantity,
+        unitPrice: price,
+        totalPrice: lineTotal,
+        notes: item.notes ?? null,
+      }
+    })
+
+    const gstRate = new Decimal(order.gstRate)
+    const gstAmount = subtotal.mul(gstRate).div(100).toDecimalPlaces(2)
+    const total = subtotal.add(gstAmount)
+
+    await this.prisma.orderItem.createMany({ data: newItems })
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: { subtotal, gstAmount, total },
+      include: {
+        table: { select: { id: true, tableNumber: true } },
+        branch: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, phone: true } },
+        items: { include: { menuItem: { select: { id: true, name: true } }, addons: true } },
+        payments: true,
+      },
+    })
+
+    this.events.emitToBranch(order.branchId, 'order.updated', { id: updated.id, orderNumber: updated.orderNumber })
     return this.serializeOrder(updated)
   }
 

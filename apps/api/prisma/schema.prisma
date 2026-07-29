@@ -249,6 +249,7 @@ model Order {
   paxCount        Int         @default(1)
   paymentStatus   String      @default("UNPAID")
   notes           String?
+  rating          Int?
   deliveryAddress String?
   createdById     String?
   createdAt     DateTime    @default(now())

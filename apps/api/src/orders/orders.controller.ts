@@ -16,6 +16,7 @@ import { CurrentUser } from "../auth/decorators/current-user.decorator"
 import { Public } from "../auth/decorators/public.decorator"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
+import { EditOrderDto } from "./dto/edit-order.dto"
 
 @ApiTags("orders")
 @ApiBearerAuth()
@@ -29,6 +30,17 @@ export class OrdersController {
   @ApiOperation({ summary: "Public: place an order from QR table (no auth required)" })
   createPublicOrder(@Body() dto: CreateOrderDto) {
     return this.ordersService.createPublicOrder(dto)
+  }
+
+  @Public()
+  @Patch(":id/rating")
+  @ApiOperation({ summary: "Customer: submit star rating for a served order" })
+  submitRating(
+    @Param("id") id: string,
+    @Body("rating") rating: number,
+    @Body("customerId") customerId: string,
+  ) {
+    return this.ordersService.submitRating(id, rating, customerId)
   }
 
   @Public()
@@ -111,6 +123,16 @@ export class OrdersController {
     @Body() dto: UpdateOrderStatusDto,
   ) {
     return this.ordersService.updateStatus(restaurantId, id, dto)
+  }
+
+  @Patch(":id/edit")
+  @ApiOperation({ summary: "Edit items on a PENDING/CONFIRMED order" })
+  editOrder(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Param("id") id: string,
+    @Body() dto: EditOrderDto,
+  ) {
+    return this.ordersService.editOrder(restaurantId, id, dto)
   }
 
   @Delete(":id")

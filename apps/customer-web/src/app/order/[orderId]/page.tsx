@@ -6,7 +6,7 @@ import { CheckCircle, Clock, ChefHat, Bell, Utensils, HelpCircle, PartyPopper, X
 import { connectSocket, disconnectSocket } from "@/lib/socket"
 import { useCartStore } from "@/stores/cart.store"
 
-type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "SERVED" | "CANCELLED"
+type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "SERVED" | "PAID" | "CANCELLED"
 
 interface OrderItem {
   id: string
@@ -53,6 +53,7 @@ function StatusMessage({ status }: { status: OrderStatus }) {
     PREPARING: "Your food is being prepared. Sit tight! 🍳",
     READY:     "Your order is ready! A waiter will bring it to you shortly.",
     SERVED:    "Enjoy your meal! 😊",
+    PAID:      "Payment received. Thank you! 🙏",
     CANCELLED: "Your order was cancelled.",
   }
   return <p className="text-sm text-gray-500 text-center mt-2">{msgs[status]}</p>
@@ -89,6 +90,10 @@ export default function OrderTrackerPage() {
   const [cancelling, setCancelling] = useState(false)
   const [waiterSent, setWaiterSent] = useState(false)
   const [billSent, setBillSent] = useState(false)
+  const [selectedRating, setSelectedRating] = useState(0)
+  const [hoverRating, setHoverRating] = useState(0)
+  const [submittingRating, setSubmittingRating] = useState(false)
+  const [rated, setRated] = useState(false)
   const cancelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const socketRef = useRef<ReturnType<typeof connectSocket> | null>(null)
 
@@ -186,6 +191,26 @@ export default function OrderTrackerPage() {
     })
     setBillSent(true)
     setTimeout(() => setBillSent(false), 2000)
+  }
+
+  async function handleSubmitRating() {
+    const customerId = getCustomerId()
+    if (!customerId || !selectedRating) return
+    setSubmittingRating(true)
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/rating`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: selectedRating, customerId }),
+      })
+      if (!res.ok) throw new Error("Failed to submit rating")
+      setRated(true)
+      toast.success("Rating submitted!")
+    } catch {
+      toast.error("Could not submit rating")
+    } finally {
+      setSubmittingRating(false)
+    }
   }
 
   // ── Cancel handler ────────────────────────────────────────────────────────
@@ -384,7 +409,7 @@ export default function OrderTrackerPage() {
         </div>
 
         {/* Receipt link for served/paid orders */}
-        {(order.status === "SERVED" || (order as any).status === "PAID") && (
+        {(order.status === "SERVED" || order.status === "PAID") && (
           <a
             href={`${process.env.NEXT_PUBLIC_ADMIN_URL ?? "http://localhost:3000"}/orders/${orderId}/receipt`}
             target="_blank"
@@ -414,6 +439,42 @@ export default function OrderTrackerPage() {
               <Receipt className="w-4 h-4" />
               {billSent ? "Sent!" : "Request Bill"}
             </button>
+          </div>
+        )}
+
+        {/* Star rating card */}
+        {(order.status === "SERVED" || order.status === "PAID") && !rated && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3 text-center">How was your meal?</h2>
+            <div className="flex justify-center gap-2 mb-4">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => setSelectedRating(star)}
+                  onMouseEnter={() => setHoverRating(star)}
+                  onMouseLeave={() => setHoverRating(0)}
+                  className={`text-3xl transition-transform hover:scale-110 ${
+                    star <= (hoverRating || selectedRating) ? "text-orange-400" : "text-gray-200"
+                  }`}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+            {selectedRating > 0 && (
+              <button
+                onClick={handleSubmitRating}
+                disabled={submittingRating}
+                className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 font-semibold text-sm transition-colors disabled:opacity-50"
+              >
+                {submittingRating ? "Submitting…" : "Submit Rating"}
+              </button>
+            )}
+          </div>
+        )}
+        {rated && (order.status === "SERVED" || order.status === "PAID") && (
+          <div className="bg-orange-50 rounded-2xl p-4 text-center border border-orange-100">
+            <p className="text-orange-600 font-semibold text-sm">Thanks for your feedback! ⭐</p>
           </div>
         )}
 

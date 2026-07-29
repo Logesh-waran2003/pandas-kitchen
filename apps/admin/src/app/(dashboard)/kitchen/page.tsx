@@ -48,6 +48,10 @@ function playKDSAlert() {
 
 // ─── Dept color ───────────────────────────────────────────────────────────────
 
+function getKotAgeMinutes(createdAt: string): number {
+  return Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000)
+}
+
 function deptColor(name: string | undefined): string {
   if (!name) return "#6b7280"
   const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6"]
@@ -91,8 +95,15 @@ function LiveTimer({ createdAt }: { createdAt: string }) {
 function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
   const [actionLoading, setActionLoading] = useState(false)
   const [markingItemId, setMarkingItemId] = useState<string | null>(null)
+  const [, setTick] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   const isNew = Date.now() - new Date(kot.createdAt).getTime() < 60_000
+  const ageMin = getKotAgeMinutes(kot.createdAt)
   const borderColor = deptColor(kot.items[0]?.department?.name)
 
   async function handleStatusChange(status: "IN_PROGRESS" | "COMPLETED") {
@@ -126,14 +137,21 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
     }
   }
 
+  const ageBg = ageMin >= 20 ? "bg-red-50" : ageMin >= 10 ? "bg-yellow-50" : "bg-white"
+  const ageBorderColor = ageMin >= 20 ? "#f87171" : ageMin >= 10 ? "#facc15" : borderColor
+
   return (
     <div
-      className={`bg-white rounded-xl border shadow-sm p-3 space-y-2 ${
+      className={`${ageBg} rounded-xl border shadow-sm p-3 space-y-2 ${
         isNew
           ? "animate-pulse border-orange-400 ring-2 ring-orange-400"
+          : ageMin >= 20
+          ? "border-red-200"
+          : ageMin >= 10
+          ? "border-yellow-200"
           : "border-gray-200"
       }`}
-      style={{ borderLeft: `4px solid ${borderColor}` }}
+      style={{ borderLeft: `4px solid ${ageBorderColor}` }}
     >
       {/* Top row */}
       <div className="flex items-start justify-between gap-2">
@@ -152,6 +170,15 @@ function KotCard({ kot, onUpdated }: { kot: Kot; onUpdated: () => void }) {
           )}
         </div>
         <LiveTimer createdAt={kot.createdAt} />
+        {ageMin >= 10 && (
+          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${
+            ageMin >= 20
+              ? "bg-red-100 text-red-600 animate-pulse"
+              : "bg-yellow-100 text-yellow-700"
+          }`}>
+            {ageMin >= 20 ? "🔴 20m+" : "⚠ 10m+"}
+          </span>
+        )}
       </div>
 
       {/* Items */}

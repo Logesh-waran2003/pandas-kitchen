@@ -15,6 +15,7 @@ interface OrderItem {
   quantity: number
   unitPrice: number
   totalPrice: number
+  variantId?: string | null
   variantName?: string | null
 }
 
@@ -31,12 +32,15 @@ interface Order {
   tip?: number
   couponDiscount?: number
   orderType?: "DINE_IN" | "TAKEAWAY" | "DELIVERY"
+  orderSource?: "ONLINE" | "QR_TABLE" | "POS"
   pickupCode?: string | null
   items: OrderItem[]
   table?: { tableNumber: string } | null
   customer?: { name?: string; phone?: string } | null
   createdAt?: string
   paymentLabel?: string
+  eta?: number | null
+  loyaltyPointsEarned?: number | null
 }
 
 const STATUS_STEPS: { key: OrderStatus; label: string; icon: React.ReactNode }[] = [
@@ -84,10 +88,10 @@ function getCustomerId(): string | null {
   } catch { return null }
 }
 
-function getCancelSecondsLeft(createdAt: string | undefined): number {
+function getCancelSecondsLeft(createdAt: string | undefined, windowMs = 2 * 60 * 1000): number {
   if (!createdAt) return 0
   const elapsed = Date.now() - new Date(createdAt).getTime()
-  return Math.max(0, Math.floor((2 * 60 * 1000 - elapsed) / 1000))
+  return Math.max(0, Math.floor((windowMs - elapsed) / 1000))
 }
 
 function downloadReceipt(order: Order) {
@@ -163,6 +167,8 @@ export default function OrderTrackerPage() {
   const cancelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const socketRef = useRef<ReturnType<typeof connectSocket> | null>(null)
   const readyNotifiedRef = useRef(false)
+  const etaReceivedAtRef = useRef<number | null>(null)
+  const [etaSecondsLeft, setEtaSecondsLeft] = useState<number>(0)
 
   const tableId = useCartStore((s) => s.tableId)
   const branchId = useCartStore((s) => s.branchId)
@@ -189,12 +195,38 @@ export default function OrderTrackerPage() {
         if (stored.id === orderId) {
           setOrder(stored)
           if (stored.status === "PENDING") {
-            setCancelSecondsLeft(getCancelSecondsLeft(stored.createdAt))
+            const windowMs = stored.orderSource === "ONLINE" ? 3 * 60 * 1000 : 2 * 60 * 1000
+            setCancelSecondsLeft(getCancelSecondsLeft(stored.createdAt, windowMs))
           }
         }
       }
     } catch { /* ignore */ }
   }, [orderId])
+
+  // ── Auto-fetch fresh order data from API on mount ────────────────────────
+  useEffect(() => {
+    async function fetchOrder() {
+      try {
+        const token = getCustomerToken()
+        const headers: Record<string, string> = { "Content-Type": "application/json" }
+        if (token) headers["Authorization"] = `Bearer ${token}`
+        const res = await fetch(`${API_BASE}/orders/${orderId}/track`, { headers })
+        if (!res.ok) return
+        const data = await res.json() as Order
+        setOrder(data)
+        if (data.status === "CANCELLED") setCancelled(true)
+        if (data.status === "PENDING") {
+          const windowMs = data.orderSource === "ONLINE" ? 3 * 60 * 1000 : 2 * 60 * 1000
+          setCancelSecondsLeft(getCancelSecondsLeft(data.createdAt, windowMs))
+        }
+        if (data.eta && ["CONFIRMED", "PREPARING"].includes(data.status)) {
+          etaReceivedAtRef.current = Date.now()
+          setEtaSecondsLeft(data.eta * 60)
+        }
+      } catch { /* non-fatal */ }
+    }
+    fetchOrder()
+  }, [orderId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cancel countdown timer ────────────────────────────────────────────────
   useEffect(() => {
@@ -208,19 +240,37 @@ export default function OrderTrackerPage() {
     return () => { if (cancelTimerRef.current) clearInterval(cancelTimerRef.current) }
   }, [cancelSecondsLeft > 0]) // only re-run when crossing 0
 
+  // ── ETA countdown ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (etaSecondsLeft <= 0) return
+    const t = setInterval(() => setEtaSecondsLeft((s) => Math.max(0, s - 1)), 1000)
+    return () => clearInterval(t)
+  }, [etaSecondsLeft > 0]) // only re-run when crossing 0
+
   // ── Socket: live updates ─────────────────────────────────────────────────
   useEffect(() => {
     const token = getCustomerToken()
-    if (!token) return
-
-    const socket = connectSocket(token)
+    // Connect even without token — guest order tracking still works
+    const socket = connectSocket(token ?? undefined)
     socketRef.current = socket
 
     socket.on("connect", () => { socket.emit("join:order", orderId) })
 
-    socket.on("order.status_changed", (data: { id: string; status: OrderStatus }) => {
+    socket.on("order.status_changed", (data: { id: string; status: OrderStatus; eta?: number | null; pickupCode?: string | null }) => {
       if (data.id !== orderId) return
-      setOrder((prev) => prev ? { ...prev, status: data.status } : prev)
+      setOrder((prev) => prev ? {
+        ...prev,
+        status: data.status,
+        ...(data.eta != null ? { eta: data.eta } : {}),
+        ...(data.pickupCode != null ? { pickupCode: data.pickupCode } : {}),
+      } : prev)
+      if (data.eta && ["CONFIRMED", "PREPARING"].includes(data.status)) {
+        etaReceivedAtRef.current = Date.now()
+        setEtaSecondsLeft(data.eta * 60)
+      }
+      if (["READY", "SERVED", "PAID", "CANCELLED"].includes(data.status)) {
+        setEtaSecondsLeft(0)
+      }
       if (data.status === "CANCELLED") setCancelled(true)
       if (data.status !== "PENDING") {
         setCancelSecondsLeft(0)
@@ -266,7 +316,8 @@ export default function OrderTrackerPage() {
       const token = getCustomerToken()
       const headers: Record<string, string> = { "Content-Type": "application/json" }
       if (token) headers["Authorization"] = `Bearer ${token}`
-      const res = await fetch(`${API_BASE}/orders/${orderId}`, { headers })
+      // Use /track (customer-guarded) not /orders/:id (admin-guarded)
+      const res = await fetch(`${API_BASE}/orders/${orderId}/track`, { headers })
       if (!res.ok) throw new Error("Failed to fetch order")
       const data = await res.json() as Order
       setOrder((prev) => ({ ...(prev ?? {}), ...data }))
@@ -288,6 +339,7 @@ export default function OrderTrackerPage() {
         name,
         price: Number(item.unitPrice),
         quantity: item.quantity,
+        variantId: item.variantId ?? undefined,
         variantName: item.variantName ?? undefined,
       })
     })
@@ -358,6 +410,31 @@ export default function OrderTrackerPage() {
       toast.success("Order cancelled")
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to cancel order")
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  // ── Public cancel handler (ONLINE orders — no auth required) ──────────────
+  async function handleCustomerCancel() {
+    if (!window.confirm("Cancel this order? This cannot be undone.")) return
+    setCancelling(true)
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Customer requested cancellation" }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast.error((err as any).message ?? "Could not cancel order")
+        return
+      }
+      setOrder((prev) => prev ? { ...prev, status: "CANCELLED" } : prev)
+      setCancelled(true)
+      toast.success("Order cancelled")
+    } catch {
+      toast.error("Could not cancel order")
     } finally {
       setCancelling(false)
     }
@@ -437,8 +514,22 @@ export default function OrderTrackerPage() {
           </div>
         )}
 
-        {/* 2-minute cancel window */}
-        {order.status === "PENDING" && cancelSecondsLeft > 0 && (
+        {/* Cancel window — ONLINE orders: public, no auth, 3-min window */}
+        {order.status === "PENDING" && order.orderSource === "ONLINE" && cancelSecondsLeft > 0 && (
+          <button
+            onClick={handleCustomerCancel}
+            disabled={cancelling}
+            className="w-full flex items-center justify-center gap-2 border-2 border-red-100 text-red-500 rounded-2xl py-3 font-semibold text-sm bg-white hover:bg-red-50 transition-colors disabled:opacity-50"
+          >
+            <XCircle className="w-4 h-4" />
+            {cancelling
+              ? "Cancelling…"
+              : `Cancel Order (${Math.floor(cancelSecondsLeft / 60)}:${String(cancelSecondsLeft % 60).padStart(2, "0")})`}
+          </button>
+        )}
+
+        {/* 2-minute cancel window — dine-in / QR table (requires login) */}
+        {order.status === "PENDING" && order.orderSource !== "ONLINE" && cancelSecondsLeft > 0 && (
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-orange-100 flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">Changed your mind?</p>
@@ -539,6 +630,32 @@ export default function OrderTrackerPage() {
             </p>
             <p className="text-sm text-orange-700">
               Show this code at the counter to collect your order
+            </p>
+          </div>
+        )}
+
+        {/* ETA countdown card — shown when CONFIRMED or PREPARING */}
+        {order.eta != null && order.eta > 0 && ["CONFIRMED", "PREPARING"].includes(order.status) && (
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-center">
+            <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">
+              {etaSecondsLeft > 0 ? "Ready In" : "Almost Ready"}
+            </p>
+            <p className="text-3xl font-black text-blue-700">
+              {etaSecondsLeft <= 0
+                ? "Any moment now... 🍽️"
+                : etaSecondsLeft < 600
+                ? `${String(Math.floor(etaSecondsLeft / 60)).padStart(2, "0")}:${String(etaSecondsLeft % 60).padStart(2, "0")}`
+                : `${Math.ceil(etaSecondsLeft / 60)} mins`}
+            </p>
+          </div>
+        )}
+
+        {/* Loyalty points earned — shown after PAID */}
+        {["PAID", "SERVED"].includes(order.status) && order.loyaltyPointsEarned != null && order.loyaltyPointsEarned > 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 text-center">
+            <p className="text-2xl mb-1">⭐</p>
+            <p className="text-sm font-semibold text-yellow-800">
+              You earned <span className="text-yellow-600 font-black">{order.loyaltyPointsEarned}</span> loyalty points on this order!
             </p>
           </div>
         )}
@@ -682,6 +799,17 @@ export default function OrderTrackerPage() {
           <HelpCircle className="w-4 h-4" />
           Need Help?
         </button>
+
+        {/* My orders link */}
+        {restaurantId && (
+          <button
+            onClick={() => router.push(`/account/${restaurantId}/orders`)}
+            className="w-full flex items-center justify-center gap-2 text-gray-400 text-sm py-2 hover:text-orange-500 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            View all my orders
+          </button>
+        )}
       </div>
     </div>
   )

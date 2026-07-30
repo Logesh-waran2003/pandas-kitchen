@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState, useRef } from "react"
+import { useEffect, useState, useRef, Suspense } from "react"
 import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/api"
 import { useCartStore } from "@/stores/cart.store"
@@ -50,11 +50,23 @@ function getCustomerAuth(): CustomerAuth | null {
 }
 
 export default function MenuPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-orange-50 flex items-center justify-center"><div className="text-5xl animate-bounce">🐼</div></div>}>
+      <MenuPageInner />
+    </Suspense>
+  )
+}
+
+function MenuPageInner() {
   const { restaurantId } = useParams<{ restaurantId: string }>()
   const searchParams = useSearchParams()
   const router = useRouter()
   const tableId = searchParams.get("tableId")
-  const branchId = searchParams.get("branchId")
+  const branchIdFromUrl = searchParams.get("branchId")
+
+  // For online ordering via /r/[slug], branchId is in the cart store (not URL)
+  const cartBranchId = useCartStore((s) => s.branchId)
+  const branchId = branchIdFromUrl ?? cartBranchId
 
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<MenuItem[]>([])

@@ -4,13 +4,15 @@ import {
   ForbiddenException,
   BadRequestException,
 } from "@nestjs/common"
-import { randomUUID } from "crypto"
+import { randomUUID, randomBytes } from "crypto"
 import { PrismaService } from "../prisma/prisma.service"
 import { EventsGateway } from "../events/events.gateway"
 import { InventoryService } from "../inventory/inventory.service"
 import { KitchenService } from "../kitchen/kitchen.service"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
+import { SmsService } from "../sms/sms.service"
+import { PushService } from "../push/push.service"
 import { EditOrderDto } from "./dto/edit-order.dto"
 import { OrderStatus, OrderType, OrderSource } from "@prisma/client"
 import { Decimal } from "@prisma/client/runtime/library"
@@ -22,6 +24,8 @@ export class OrdersService {
     private events: EventsGateway,
     private inventoryService: InventoryService,
     private kitchenService: KitchenService,
+    private smsService: SmsService,
+    private pushService: PushService,
   ) {}
 
   async listOrders(
@@ -79,7 +83,7 @@ export class OrdersService {
     }
   }
 
-  async findOneForTracking(orderId: string, customerId: string) {
+  async findOneForTracking(orderId: string, customerId: string | undefined) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -90,7 +94,7 @@ export class OrdersService {
     })
 
     if (!order) throw new NotFoundException("Order not found")
-    if (order.customerId !== customerId) throw new ForbiddenException()
+    if (customerId && order.customerId !== customerId) throw new ForbiddenException()
 
     // Show pickup code from CONFIRMED onwards so customer can present it early
     const pickupCodeStatuses: string[] = ["CONFIRMED", "PREPARING", "READY", "SERVED", "PAID"]
@@ -111,7 +115,9 @@ export class OrdersService {
       tip: Number(order.tip),
       couponDiscount: Number(order.couponDiscount),
       scheduledFor: order.scheduledFor,
+      eta: order.eta ?? null,
       pickupCode: showPickupCode ? order.pickupCode : null,
+      loyaltyPointsEarned: order.loyaltyPointsEarned ?? 0,
       createdAt: order.createdAt,
       items: order.items.map((i) => ({
         id: i.id,
@@ -298,7 +304,7 @@ export class OrdersService {
     // Generate pickup code for TAKEAWAY orders
     const pickupCode =
       dto.orderType === OrderType.TAKEAWAY
-        ? Array.from({ length: 6 }, () => "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"[Math.floor(Math.random() * 36)]).join("")
+        ? randomBytes(3).toString("hex").toUpperCase()
         : null
 
     // Generate order number — timestamp + 8 hex chars of UUID randomness (BUG-07).
@@ -359,6 +365,7 @@ export class OrdersService {
           include: {
             table: { select: { id: true, tableNumber: true } },
             branch: { select: { id: true, name: true } },
+            restaurant: { select: { name: true } },
             customer: { select: { id: true, name: true, phone: true } },
             items: {
               include: {
@@ -428,6 +435,18 @@ export class OrdersService {
     // Auto-generate KOT tickets for the new order (non-blocking — don't fail the order creation)
     this.kitchenService.generateKOTsForOrder(order.id, order.branchId).catch(() => {})
 
+    // SMS: order placed confirmation — fire and forget
+    this.smsService.sendOrderPlaced(
+      order.customer?.phone ?? dto.customerPhone ?? null,
+      order.orderNumber,
+      order.restaurant?.name ?? 'Pandas Kitchen',
+    ).catch(() => {})
+
+    // Loyalty: award points after order creation — fire and forget, never blocks the response
+    if (resolvedCustomerId) {
+      this.awardLoyaltyPoints(order.id, restaurantId, resolvedCustomerId, Number(order.subtotal)).catch(() => {})
+    }
+
     return this.serializeOrder(order)
   }
 
@@ -491,9 +510,15 @@ export class OrdersService {
       }
     }
 
+    // Include eta in the same update when confirming so the response reflects it
+    const updateData: any = { status: dto.status }
+    if (dto.status === "CONFIRMED" && dto.eta) {
+      updateData.eta = dto.eta
+    }
+
     const order = await this.prisma.order.update({
       where: { id },
-      data: { status: dto.status },
+      data: updateData,
       include: {
         table: { select: { id: true, tableNumber: true } },
         branch: { select: { id: true, name: true } },
@@ -507,13 +532,24 @@ export class OrdersService {
       },
     })
 
-    const statusPayload = { id: order.id, orderNumber: order.orderNumber, status: order.status, orderType: order.orderType }
+    const statusPayload = { id: order.id, orderNumber: order.orderNumber, status: order.status, orderType: order.orderType, eta: order.eta ?? null, pickupCode: order.pickupCode ?? null }
     this.events.emitToBranch(order.branchId, "order.status_changed", statusPayload)
     this.events.emitToOrder(order.id, "order.status_changed", statusPayload)
 
     // Re-run KOT generation on CONFIRMED — idempotent, handles any items missed on create
     if (dto.status === "CONFIRMED") {
       this.kitchenService.generateKOTsForOrder(order.id, order.branchId).catch(() => {})
+      this.smsService.sendOrderAccepted(
+        order.customer?.phone ?? null,
+        order.orderNumber,
+        dto.eta ?? 0,
+        order.pickupCode ?? undefined,
+      ).catch(() => {})
+      this.pushService.sendToOrder(
+        id,
+        'Order Accepted! 🎉',
+        `Your order #${order.orderNumber} is confirmed.${dto.eta ? ` Ready in ~${dto.eta} mins.` : ''}`,
+      ).catch(() => {})
     }
 
     // Auto-deduct inventory when order is served or paid
@@ -521,15 +557,37 @@ export class OrdersService {
       this.inventoryService.deductForOrder(id).catch(() => {})
     }
 
-    // Loyalty points on PAID (totalOrders + totalSpent already incremented at order creation)
-    if (dto.status === "PAID" && order.customerId) {
-      const pointsEarned = Math.floor(Number(order.total) / 10)
-      this.prisma.customer.update({
-        where: { id: order.customerId },
-        data: {
-          loyaltyPoints: { increment: pointsEarned },
-        },
-      }).catch(() => {})
+    if (dto.status === "PREPARING") {
+      this.pushService.sendToOrder(
+        id,
+        'Order Being Prepared 👨‍🍳',
+        `Your order #${order.orderNumber} is being prepared.`,
+      ).catch(() => {})
+    }
+
+    if (dto.status === "READY") {
+      this.smsService.sendOrderReady(
+        order.customer?.phone ?? null,
+        order.orderNumber,
+        order.pickupCode ?? undefined,
+      ).catch(() => {})
+      this.pushService.sendToOrder(
+        id,
+        'Order Ready! 🛎️',
+        `Your order #${order.orderNumber} is ready for pickup!${order.pickupCode ? ` Code: ${order.pickupCode}` : ''}`,
+      ).catch(() => {})
+    }
+
+    if (dto.status === "CANCELLED") {
+      this.smsService.sendOrderCancelled(
+        order.customer?.phone ?? null,
+        order.orderNumber,
+      ).catch(() => {})
+      this.pushService.sendToOrder(
+        id,
+        'Order Cancelled',
+        `Your order #${order.orderNumber} has been cancelled.`,
+      ).catch(() => {})
     }
 
     return this.serializeOrder(order)
@@ -577,6 +635,71 @@ export class OrdersService {
     if (order.rating) throw new BadRequestException('Already rated')
     await this.prisma.order.update({ where: { id: orderId }, data: { rating } })
     return { success: true }
+  }
+
+  async customerCancelOrder(id: string, reason?: string): Promise<{ success: boolean; message: string }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: { branch: { include: { restaurant: true } }, customer: true },
+    })
+    if (!order) throw new NotFoundException('Order not found')
+
+    if (order.status !== 'PENDING') {
+      throw new BadRequestException('Order can only be cancelled when pending')
+    }
+
+    // 3-minute cancellation window
+    const diffMins = (Date.now() - order.createdAt.getTime()) / 1000 / 60
+    if (diffMins > 3) {
+      throw new BadRequestException('Cancellation window has expired (3 minutes)')
+    }
+
+    await this.prisma.order.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        notes: reason ? `Customer cancelled: ${reason}` : 'Customer cancelled',
+      },
+    })
+
+    this.events.emitToOrder(id, 'order.cancelled', { id, status: 'CANCELLED' })
+    this.events.emitToBranch(order.branchId, 'order.status_changed', { id, status: 'CANCELLED', orderNumber: order.orderNumber })
+
+    this.smsService.sendOrderCancelled(order.customer?.phone ?? null, order.orderNumber).catch(() => {})
+
+    return { success: true, message: 'Order cancelled successfully' }
+  }
+
+  async getTodayStats(restaurantId: string) {
+    const todayStart = new Date()
+    todayStart.setHours(0, 0, 0, 0)
+
+    const [totalOrders, onlineOrders, pendingOrders, revenueResult, activeTables] = await Promise.all([
+      this.prisma.order.count({
+        where: { branch: { restaurantId }, createdAt: { gte: todayStart }, status: { not: 'CANCELLED' } },
+      }),
+      this.prisma.order.count({
+        where: { branch: { restaurantId }, orderSource: 'ONLINE', createdAt: { gte: todayStart } },
+      }),
+      this.prisma.order.count({
+        where: { branch: { restaurantId }, status: { in: ['PENDING', 'CONFIRMED'] }, orderSource: 'ONLINE' },
+      }),
+      this.prisma.order.aggregate({
+        where: { branch: { restaurantId }, createdAt: { gte: todayStart }, status: { not: 'CANCELLED' } },
+        _sum: { total: true },
+      }),
+      this.prisma.table.count({
+        where: { restaurantId, status: 'OCCUPIED', isActive: true },
+      }),
+    ])
+
+    return {
+      totalOrdersToday: totalOrders,
+      onlineOrdersToday: onlineOrders,
+      pendingOnlineOrders: pendingOrders,
+      revenueToday: Number(revenueResult._sum.total ?? 0),
+      activeTablesCount: activeTables,
+    }
   }
 
   async cancelPublicOrder(orderId: string, customerId: string) {
@@ -681,7 +804,13 @@ export class OrdersService {
 
     const gstRate = new Decimal(order.gstRate)
     const gstAmount = subtotal.mul(gstRate).div(100).toDecimalPlaces(2)
+    const { couponDiscount, serviceCharge, deliveryFee, packagingFee, tip } = order
     const total = subtotal.add(gstAmount)
+      .add(serviceCharge ?? 0)
+      .add(deliveryFee ?? 0)
+      .add(packagingFee ?? 0)
+      .add(tip ?? 0)
+      .sub(couponDiscount ?? 0)
 
     await this.prisma.orderItem.createMany({ data: newItems })
 
@@ -699,6 +828,38 @@ export class OrdersService {
 
     this.events.emitToBranch(order.branchId, 'order.updated', { id: updated.id, orderNumber: updated.orderNumber })
     return this.serializeOrder(updated)
+  }
+
+  // Award loyalty points after order creation based on restaurant settings — fire and forget
+  private async awardLoyaltyPoints(orderId: string, restaurantId: string, customerId: string, subtotal: number) {
+    const settings = await this.prisma.restaurantOnlineSettings.findUnique({
+      where: { restaurantId },
+      select: { loyaltyPointsPerRupee: true },
+    })
+    const rate = settings?.loyaltyPointsPerRupee ?? 1
+    const points = Math.floor(subtotal * rate)
+    if (points <= 0) return
+
+    await this.prisma.$transaction([
+      this.prisma.loyaltyTransaction.create({
+        data: {
+          customerId,
+          restaurantId,
+          orderId,
+          points,
+          type: "EARNED",
+          description: `Points earned on order`,
+        },
+      }),
+      this.prisma.customer.update({
+        where: { id: customerId },
+        data: { loyaltyPoints: { increment: points } },
+      }),
+      this.prisma.order.update({
+        where: { id: orderId },
+        data: { loyaltyPointsEarned: points },
+      }),
+    ])
   }
 
   private calcDiscount(subtotal: Decimal, discount: number, type: string): Decimal {
@@ -725,6 +886,10 @@ export class OrdersService {
       serviceCharge: Number(order.serviceCharge),
       gstRate: Number(order.gstRate),
       gstAmount: Number(order.gstAmount),
+      deliveryFee: Number(order.deliveryFee),
+      packagingFee: Number(order.packagingFee),
+      tip: Number(order.tip),
+      couponDiscount: Number(order.couponDiscount),
       total: Number(order.total),
       totalAmount: Number(order.total),
       paxCount: order.paxCount ?? 1,

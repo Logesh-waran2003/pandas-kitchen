@@ -156,33 +156,24 @@ export class SettingsService {
   }
 
   async updateOnlineSettings(restaurantId: string, dto: UpdateOnlineSettingsDto) {
+    const fields = {
+      ...(dto.onlineOrderingEnabled !== undefined && { onlineOrderingEnabled: dto.onlineOrderingEnabled }),
+      ...(dto.deliveryEnabled !== undefined && { deliveryEnabled: dto.deliveryEnabled }),
+      ...(dto.takeawayEnabled !== undefined && { takeawayEnabled: dto.takeawayEnabled }),
+      ...(dto.deliveryRadiusKm !== undefined && { deliveryRadiusKm: dto.deliveryRadiusKm }),
+      ...(dto.minOrderValue !== undefined && { minOrderValue: dto.minOrderValue }),
+      ...(dto.deliveryFee !== undefined && { deliveryFee: dto.deliveryFee }),
+      ...(dto.packagingFee !== undefined && { packagingFee: dto.packagingFee }),
+      ...(dto.serviceChargePercent !== undefined && { serviceChargePercent: dto.serviceChargePercent }),
+      ...(dto.estimatedPrepMins !== undefined && { estimatedPrepMins: dto.estimatedPrepMins }),
+      ...(dto.pickupPrepMins !== undefined && { pickupPrepMins: dto.pickupPrepMins }),
+      ...(dto.loyaltyPointsPerRupee !== undefined && { loyaltyPointsPerRupee: dto.loyaltyPointsPerRupee }),
+      ...(dto.loyaltyRedemptionRate !== undefined && { loyaltyRedemptionRate: dto.loyaltyRedemptionRate }),
+    }
     const result = await this.prisma.restaurantOnlineSettings.upsert({
       where: { restaurantId },
-      create: {
-        restaurantId,
-        ...(dto.onlineOrderingEnabled !== undefined && { onlineOrderingEnabled: dto.onlineOrderingEnabled }),
-        ...(dto.deliveryEnabled !== undefined && { deliveryEnabled: dto.deliveryEnabled }),
-        ...(dto.takeawayEnabled !== undefined && { takeawayEnabled: dto.takeawayEnabled }),
-        ...(dto.deliveryRadiusKm !== undefined && { deliveryRadiusKm: dto.deliveryRadiusKm }),
-        ...(dto.minOrderValue !== undefined && { minOrderValue: dto.minOrderValue }),
-        ...(dto.deliveryFee !== undefined && { deliveryFee: dto.deliveryFee }),
-        ...(dto.packagingFee !== undefined && { packagingFee: dto.packagingFee }),
-        ...(dto.serviceChargePercent !== undefined && { serviceChargePercent: dto.serviceChargePercent }),
-        ...(dto.estimatedPrepMins !== undefined && { estimatedPrepMins: dto.estimatedPrepMins }),
-        ...(dto.pickupPrepMins !== undefined && { pickupPrepMins: dto.pickupPrepMins }),
-      },
-      update: {
-        ...(dto.onlineOrderingEnabled !== undefined && { onlineOrderingEnabled: dto.onlineOrderingEnabled }),
-        ...(dto.deliveryEnabled !== undefined && { deliveryEnabled: dto.deliveryEnabled }),
-        ...(dto.takeawayEnabled !== undefined && { takeawayEnabled: dto.takeawayEnabled }),
-        ...(dto.deliveryRadiusKm !== undefined && { deliveryRadiusKm: dto.deliveryRadiusKm }),
-        ...(dto.minOrderValue !== undefined && { minOrderValue: dto.minOrderValue }),
-        ...(dto.deliveryFee !== undefined && { deliveryFee: dto.deliveryFee }),
-        ...(dto.packagingFee !== undefined && { packagingFee: dto.packagingFee }),
-        ...(dto.serviceChargePercent !== undefined && { serviceChargePercent: dto.serviceChargePercent }),
-        ...(dto.estimatedPrepMins !== undefined && { estimatedPrepMins: dto.estimatedPrepMins }),
-        ...(dto.pickupPrepMins !== undefined && { pickupPrepMins: dto.pickupPrepMins }),
-      },
+      create: { restaurantId, ...fields },
+      update: fields,
     })
     return this.serializeOnlineSettings(result)
   }
@@ -220,6 +211,7 @@ export class SettingsService {
       deliveryFee: Number(s.deliveryFee),
       packagingFee: Number(s.packagingFee),
       serviceChargePercent: Number(s.serviceChargePercent),
+      // loyaltyPointsPerRupee and loyaltyRedemptionRate are plain Float — no conversion needed
     }
   }
 

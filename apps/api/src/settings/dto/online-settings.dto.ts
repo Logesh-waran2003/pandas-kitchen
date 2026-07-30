@@ -58,4 +58,16 @@ export class UpdateOnlineSettingsDto {
   @IsInt()
   @Min(0)
   pickupPrepMins?: number
+
+  @ApiPropertyOptional({ example: 1, description: "Loyalty points earned per ₹1 spent" })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  loyaltyPointsPerRupee?: number
+
+  @ApiPropertyOptional({ example: 0.25, description: "₹ value of 1 loyalty point" })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  loyaltyRedemptionRate?: number
 }

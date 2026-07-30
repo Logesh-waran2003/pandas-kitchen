@@ -19,6 +19,25 @@ export class CustomersService {
     private jwt: JwtService,
   ) {}
 
+  async getLoyaltyBalance(customerId: string, restaurantId: string) {
+    const [customer, settings] = await Promise.all([
+      this.prisma.customer.findUnique({ where: { id: customerId }, select: { loyaltyPoints: true, restaurantId: true } }),
+      this.prisma.restaurantOnlineSettings.findUnique({
+        where: { restaurantId },
+        select: { loyaltyRedemptionRate: true },
+      }),
+    ])
+
+    if (!customer) throw new NotFoundException("Customer not found")
+    if (customer.restaurantId !== restaurantId) throw new ForbiddenException()
+
+    const redemptionRate = settings?.loyaltyRedemptionRate ?? 0.25
+    return {
+      points: customer.loyaltyPoints,
+      valueInRupees: parseFloat((customer.loyaltyPoints * redemptionRate).toFixed(2)),
+    }
+  }
+
   async listCustomers(restaurantId: string, search?: string) {
     const where: any = { restaurantId, isActive: true }
 
@@ -117,6 +136,7 @@ export class CustomersService {
   }
 
   async registerCustomer(restaurantId: string, dto: CustomerRegisterDto) {
+    if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not set')
     // Guard: ensure restaurant exists
     const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } })
     if (!restaurant) throw new NotFoundException("Restaurant not found")
@@ -140,6 +160,7 @@ export class CustomersService {
   }
 
   async loginCustomer(restaurantId: string, dto: CustomerLoginDto) {
+    if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not set')
     const customer = await this.prisma.customer.findUnique({
       where: { restaurantId_phone: { restaurantId, phone: dto.phone } },
     })

@@ -83,7 +83,7 @@ describe("OrdersService", () => {
     tx = makeTx()
     prisma = makePrisma(tx)
     events = makeEventGateway()
-    service = new OrdersService(prisma as any, events as any, makeInventoryService() as any, { generateKOTsForOrder: jest.fn().mockResolvedValue(undefined) } as any)
+    service = new OrdersService(prisma as any, events as any, makeInventoryService() as any, { generateKOTsForOrder: jest.fn().mockResolvedValue(undefined) } as any, { sendOrderPlaced: jest.fn(), sendOrderAccepted: jest.fn(), sendOrderReady: jest.fn(), sendOrderCancelled: jest.fn() } as any, { sendToOrder: jest.fn().mockResolvedValue(undefined) } as any)
   })
 
   function setupBranchAndItems(items: Array<{ id: string; price: number }>) {

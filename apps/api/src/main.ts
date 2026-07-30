@@ -23,6 +23,9 @@ async function bootstrap() {
     }),
   )
 
+  // Health check before global prefix so it's reachable at /health (not /api/v1/health)
+  app.use('/health', (req: any, res: any) => res.json({ status: 'ok', timestamp: new Date().toISOString() }))
+
   app.setGlobalPrefix("api/v1")
   app.useGlobalFilters(new HttpExceptionFilter(), new PrismaExceptionFilter())
 

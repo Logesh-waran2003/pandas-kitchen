@@ -92,9 +92,10 @@ export class OrdersService {
     if (!order) throw new NotFoundException("Order not found")
     if (order.customerId !== customerId) throw new ForbiddenException()
 
-    const readyStatuses: string[] = ["READY", "SERVED", "PAID"]
+    // Show pickup code from CONFIRMED onwards so customer can present it early
+    const pickupCodeStatuses: string[] = ["CONFIRMED", "PREPARING", "READY", "SERVED", "PAID"]
     const showPickupCode =
-      order.orderType === OrderType.TAKEAWAY && readyStatuses.includes(order.status as string)
+      order.orderType === OrderType.TAKEAWAY && pickupCodeStatuses.includes(order.status as string)
 
     return {
       id: order.id,
@@ -481,6 +482,15 @@ export class OrdersService {
 
   async updateStatus(restaurantId: string, id: string, dto: UpdateOrderStatusDto) {
     await this.assertOwner(restaurantId, id)
+
+    // OUT_FOR_DELIVERY is only valid for DELIVERY orders
+    if (dto.status === "OUT_FOR_DELIVERY") {
+      const existing = await this.prisma.order.findUnique({ where: { id }, select: { orderType: true } })
+      if (existing?.orderType !== OrderType.DELIVERY) {
+        throw new BadRequestException("OUT_FOR_DELIVERY status is only valid for DELIVERY orders")
+      }
+    }
+
     const order = await this.prisma.order.update({
       where: { id },
       data: { status: dto.status },

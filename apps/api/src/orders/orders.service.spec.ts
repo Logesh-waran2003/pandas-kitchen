@@ -1,4 +1,4 @@
-import { NotFoundException, BadRequestException } from "@nestjs/common"
+import { NotFoundException, BadRequestException, ForbiddenException } from "@nestjs/common"
 import { OrdersService } from "./orders.service"
 import { Decimal } from "@prisma/client/runtime/library"
 
@@ -10,17 +10,20 @@ function makeTx() {
   return {
     order: { create: jest.fn(), update: jest.fn() },
     customer: { update: jest.fn() },
+    couponUsage: { create: jest.fn() },
+    coupon: { update: jest.fn() },
   }
 }
 
 function makePrisma(tx: ReturnType<typeof makeTx>) {
   return {
     branch: { findUnique: jest.fn() },
-    customer: { findUnique: jest.fn() },
+    customer: { findUnique: jest.fn(), update: jest.fn().mockResolvedValue({}) },
     menuItem: { findMany: jest.fn() },
     menuItemVariant: { findMany: jest.fn() },
     menuAddon: { findMany: jest.fn() },
-    order: { findUnique: jest.fn() },
+    order: { findUnique: jest.fn(), update: jest.fn() },
+    coupon: { findUnique: jest.fn() },
     $transaction: jest.fn().mockImplementation((cb: (tx: any) => any) => cb(tx)),
   }
 }
@@ -64,7 +67,10 @@ function makeOrderResult(overrides: Record<string, any> = {}) {
 }
 
 function makeInventoryService() {
-  return { deductForOrder: jest.fn().mockResolvedValue(undefined) }
+  return {
+    deductForOrder: jest.fn().mockResolvedValue(undefined),
+    restoreForOrder: jest.fn().mockResolvedValue(undefined),
+  }
 }
 
 describe("OrdersService", () => {
@@ -225,6 +231,59 @@ describe("OrdersService", () => {
       await expect(
         service.createOrder(RESTAURANT_ID, "user-1", dto as any)
       ).rejects.toThrow(NotFoundException)
+    })
+  })
+
+  // ── updateStatus ──────────────────────────────────────────────────────────
+
+  describe("updateStatus", () => {
+    it("OUT_FOR_DELIVERY on a DINE_IN order → throws BadRequestException", async () => {
+      // assertOwner + orderType check both hit findUnique
+      prisma.order.findUnique.mockResolvedValue({
+        id: "order-1",
+        restaurantId: RESTAURANT_ID,
+        orderType: "DINE_IN",
+      })
+
+      await expect(
+        service.updateStatus(RESTAURANT_ID, "order-1", { status: "OUT_FOR_DELIVERY" } as any)
+      ).rejects.toThrow(BadRequestException)
+    })
+  })
+
+  // ── findOneForTracking ────────────────────────────────────────────────────
+
+  describe("findOneForTracking", () => {
+    it("TAKEAWAY + CONFIRMED → pickupCode present; TAKEAWAY + PENDING → pickupCode null", async () => {
+      const baseOrder = {
+        id: "order-1",
+        orderNumber: "ORD-001",
+        status: "CONFIRMED",
+        orderType: "TAKEAWAY",
+        orderSource: "POS",
+        customerId: "cust-1",
+        total: new Decimal(100),
+        subtotal: new Decimal(95),
+        tax: new Decimal(5),
+        deliveryFee: new Decimal(0),
+        packagingFee: new Decimal(0),
+        tip: new Decimal(0),
+        couponDiscount: new Decimal(0),
+        scheduledFor: null,
+        pickupCode: "ABC123",
+        createdAt: new Date("2024-01-01"),
+        items: [],
+      }
+
+      // CONFIRMED → pickup code should be visible
+      prisma.order.findUnique.mockResolvedValueOnce({ ...baseOrder, status: "CONFIRMED" })
+      const confirmed = await service.findOneForTracking("order-1", "cust-1")
+      expect(confirmed.pickupCode).toBe("ABC123")
+
+      // PENDING → pickup code should be hidden
+      prisma.order.findUnique.mockResolvedValueOnce({ ...baseOrder, status: "PENDING" })
+      const pending = await service.findOneForTracking("order-1", "cust-1")
+      expect(pending.pickupCode).toBeNull()
     })
   })
 })

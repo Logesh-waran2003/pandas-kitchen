@@ -211,9 +211,8 @@ export default function OrderTrackerPage() {
   // ── Socket: live updates ─────────────────────────────────────────────────
   useEffect(() => {
     const token = getCustomerToken()
-    if (!token) return
-
-    const socket = connectSocket(token)
+    // Connect even without token — guest order tracking still works
+    const socket = connectSocket(token ?? undefined)
     socketRef.current = socket
 
     socket.on("connect", () => { socket.emit("join:order", orderId) })
@@ -266,7 +265,8 @@ export default function OrderTrackerPage() {
       const token = getCustomerToken()
       const headers: Record<string, string> = { "Content-Type": "application/json" }
       if (token) headers["Authorization"] = `Bearer ${token}`
-      const res = await fetch(`${API_BASE}/orders/${orderId}`, { headers })
+      // Use /track (customer-guarded) not /orders/:id (admin-guarded)
+      const res = await fetch(`${API_BASE}/orders/${orderId}/track`, { headers })
       if (!res.ok) throw new Error("Failed to fetch order")
       const data = await res.json() as Order
       setOrder((prev) => ({ ...(prev ?? {}), ...data }))

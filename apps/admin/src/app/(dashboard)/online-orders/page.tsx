@@ -382,7 +382,7 @@ export default function OnlineOrdersPage() {
                   >
                     <td className="px-4 py-3">
                       <p className="font-semibold text-gray-900">#{order.orderNumber?.slice(-8)}</p>
-                      {order.pickupCode && ["READY", "SERVED", "PAID"].includes(order.status) && (
+                      {order.pickupCode && ["CONFIRMED", "PREPARING", "READY", "SERVED", "PAID"].includes(order.status) && (
                         <p className="text-xs text-green-600 font-bold">{order.pickupCode}</p>
                       )}
                       {order.scheduledFor && (

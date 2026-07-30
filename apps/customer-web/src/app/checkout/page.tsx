@@ -156,11 +156,11 @@ export default function CheckoutPage() {
     setCouponError("")
     setCouponLoading(true)
     try {
-      const data = await apiFetch<{ valid: boolean; discountAmount: number; type: string }>(
-        `/orders/coupon/${restaurantId}/${couponInput.trim().toUpperCase()}`
+      const data = await apiFetch<{ valid: boolean; discountAmount: number; message?: string }>(
+        `/orders/coupon/${restaurantId}/${couponInput.trim().toUpperCase()}?subtotal=${subtotal}`
       )
       if (!data.valid) {
-        setCouponError("Invalid or expired coupon code")
+        setCouponError(data.message ?? "Invalid or expired coupon code")
         clearCoupon()
         return
       }

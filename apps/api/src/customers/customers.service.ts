@@ -63,6 +63,38 @@ export class CustomersService {
     return this.serialize(customer)
   }
 
+  async getMyOrders(customerId: string, restaurantId: string) {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        customerId,
+        restaurantId,
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        orderNumber: true,
+        status: true,
+        total: true,
+        orderType: true,
+        orderSource: true,
+        createdAt: true,
+        items: {
+          take: 3,
+          select: {
+            quantity: true,
+            menuItem: { select: { name: true } },
+          },
+        },
+      },
+    })
+
+    return orders.map((o) => ({
+      ...o,
+      total: Number(o.total),
+    }))
+  }
+
   async getCustomerOrders(restaurantId: string, id: string) {
     const customer = await this.prisma.customer.findUnique({ where: { id } })
     if (!customer) throw new NotFoundException("Customer not found")

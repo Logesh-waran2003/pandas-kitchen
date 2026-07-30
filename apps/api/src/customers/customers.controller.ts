@@ -103,6 +103,15 @@ export class CustomersController {
     return this.customersService.getCustomer(restaurantId, id)
   }
 
+  @Get(":restaurantId/my-orders")
+  @ApiOperation({ summary: "Get order history for logged-in customer" })
+  getMyOrders(
+    @CurrentUser("sub") customerId: string,
+    @Param("restaurantId") restaurantId: string,
+  ) {
+    return this.customersService.getMyOrders(customerId, restaurantId)
+  }
+
   @Get(":id/orders")
   @ApiOperation({ summary: "Get order history for a customer" })
   getCustomerOrders(

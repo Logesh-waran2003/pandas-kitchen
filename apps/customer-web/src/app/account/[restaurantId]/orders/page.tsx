@@ -39,6 +39,14 @@ function getStoredOrderIds(): string[] {
   } catch { return [] }
 }
 
+function getCustomerAuth(): { token: string; customerId: string } | null {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = localStorage.getItem("pk-customer-auth")
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
 function formatDate(iso: string | undefined): string {
   if (!iso) return ""
   const d = new Date(iso)
@@ -65,6 +73,24 @@ export default function OrderHistoryPage() {
 
   useEffect(() => {
     async function load() {
+      const auth = getCustomerAuth()
+
+      // Logged-in path: fetch from server
+      if (auth?.token) {
+        try {
+          const res = await fetch(`${API_BASE}/customers/${restaurantId}/my-orders`, {
+            headers: { Authorization: `Bearer ${auth.token}` },
+          })
+          if (res.ok) {
+            const data = await res.json() as OrderSummary[]
+            setOrders(data)
+            setLoading(false)
+            return
+          }
+        } catch { /* fall through to localStorage */ }
+      }
+
+      // Guest path: read from localStorage
       const ids = getStoredOrderIds()
       if (ids.length === 0) { setLoading(false); return }
 
@@ -79,12 +105,11 @@ export default function OrderHistoryPage() {
         .filter((r): r is PromiseFulfilledResult<OrderSummary> => r.status === "fulfilled")
         .map((r) => r.value)
 
-      // Newest first (preserve localStorage order which is already newest-first)
       setOrders(loaded)
       setLoading(false)
     }
     load()
-  }, [])
+  }, [restaurantId])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -114,7 +139,7 @@ export default function OrderHistoryPage() {
             <p className="text-gray-500 font-semibold">No orders yet</p>
             <p className="text-gray-400 text-sm mt-1">Your orders will appear here after checkout.</p>
             <button
-              onClick={() => router.push(`/menu/${restaurantId}`)}
+              onClick={() => router.back()}
               className="mt-5 bg-orange-500 text-white rounded-xl px-6 py-2.5 text-sm font-semibold"
             >
               Browse Menu

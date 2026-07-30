@@ -110,6 +110,7 @@ export class OrdersService {
       total: Number(order.total),
       subtotal: Number(order.subtotal),
       tax: Number(order.tax),
+      serviceCharge: Number(order.serviceCharge),
       deliveryFee: Number(order.deliveryFee),
       packagingFee: Number(order.packagingFee),
       tip: Number(order.tip),
@@ -391,9 +392,9 @@ export class OrdersService {
           })
         }
 
-        if (dto.customerId) {
+        if (resolvedCustomerId) {
           await tx.customer.update({
-            where: { id: dto.customerId },
+            where: { id: resolvedCustomerId },
             data: {
               totalOrders: { increment: 1 },
               totalSpent: { increment: total },

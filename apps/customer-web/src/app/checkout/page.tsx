@@ -201,26 +201,8 @@ export default function CheckoutPage() {
     const auth = getCustomerAuth()
     if (auth) {
       customerId = auth.customerId
-    } else if (nameInput.trim() && phoneInput.length >= 10) {
-      try {
-        const res = await apiFetch<{ token: string; customerId: string }>(
-          `/customers/${restaurantId}/login`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              restaurantId,
-              phone: phoneInput,
-              firstName: nameInput.trim(),
-            }),
-          }
-        )
-        const newAuth = { token: res.token, customerId: res.customerId, firstName: nameInput.trim() }
-        setCustomerAuth(newAuth)
-        customerId = res.customerId
-      } catch {
-        // non-fatal guest order
-      }
     }
+    // Guest orders (no login) are fine — customerId stays undefined
 
     setPlacing(true)
     try {

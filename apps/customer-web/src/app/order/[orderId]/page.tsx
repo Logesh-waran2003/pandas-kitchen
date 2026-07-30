@@ -527,9 +527,9 @@ export default function OrderTrackerPage() {
           )}
         </div>
 
-        {/* Pickup code card — shown for TAKEAWAY when order is READY or PAID */}
+        {/* Pickup code card — shown for TAKEAWAY from CONFIRMED onwards */}
         {order.orderType === "TAKEAWAY" && order.pickupCode &&
-          (order.status === "READY" || order.status === "PAID") && (
+          (["CONFIRMED", "PREPARING", "READY", "PAID"].includes(order.status)) && (
           <div className="bg-orange-50 border-2 border-orange-400 rounded-2xl p-5 text-center shadow-sm">
             <p className="text-sm font-semibold text-orange-700 mb-2 uppercase tracking-wide">
               Your Pickup Code

@@ -180,47 +180,7 @@ export default function AccountPage() {
         <h1 className="text-lg font-bold text-gray-900">My Account</h1>
       </div>
 
-      {isLoggedIn() ? (
-        /* Logged-in home */
-        <div className="flex-1 px-4 py-6 space-y-4">
-          <div className="bg-orange-500 rounded-2xl px-5 py-5 text-white">
-            <p className="text-2xl mb-1">🐼</p>
-            <p className="font-bold text-lg">{customerName ?? "Welcome back!"}</p>
-            <p className="text-orange-100 text-sm">Pandas Kitchen member</p>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <button
-              onClick={() => router.push(`/account/${restaurantId}/orders`)}
-              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors border-b border-gray-100"
-            >
-              <div className="flex items-center gap-3">
-                <ShoppingBag className="w-5 h-5 text-orange-500" />
-                <span className="font-medium text-gray-900 text-sm">My Orders</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </button>
-            <button
-              onClick={() => router.push(`/account/${restaurantId}/addresses`)}
-              className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <MapPin className="w-5 h-5 text-orange-500" />
-                <span className="font-medium text-gray-900 text-sm">Saved Addresses</span>
-              </div>
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </button>
-          </div>
-
-          <button
-            onClick={() => { clearAuth(); router.push(`/menu/${restaurantId}`) }}
-            className="w-full flex items-center justify-center gap-2 border border-gray-200 text-gray-600 rounded-2xl py-3.5 text-sm font-semibold bg-white hover:bg-gray-50 transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            Logout
-          </button>
-        </div>
-      ) : (
+      <div className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           {/* Logo */}
           <div className="bg-orange-500 px-6 py-8 text-center">
@@ -329,7 +289,7 @@ export default function AccountPage() {
             </button>
           </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

@@ -32,8 +32,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.handshake.auth?.token ||
         client.handshake.headers?.authorization?.replace("Bearer ", "")
 
+      // Allow unauthenticated connections — they can still join:order rooms
+      // for guest order tracking. Staff/customer features require auth.
       if (!token) {
-        client.disconnect()
+        client.data.role = "GUEST"
+        this.logger.log(`Guest client connected: ${client.id}`)
         return
       }
 
@@ -53,7 +56,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       this.logger.log(`Client connected: ${client.id} (user: ${payload.sub}, role: ${payload.role})`)
     } catch {
-      client.disconnect()
+      // Invalid token — allow as guest so order tracking still works
+      client.data.role = "GUEST"
+      this.logger.warn(`Client connected with invalid token, treating as guest: ${client.id}`)
     }
   }
 

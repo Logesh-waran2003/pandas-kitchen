@@ -65,6 +65,22 @@ export class OrdersController {
     return this.ordersService.cancelPublicOrder(id, customerId)
   }
 
+  @Public()
+  @Post(":id/cancel")
+  @ApiOperation({ summary: "Customer self-cancel a PENDING order (within 3 min window)" })
+  customerCancelOrder(
+    @Param("id") id: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.ordersService.customerCancelOrder(id, body.reason)
+  }
+
+  @Get("stats/today")
+  @ApiOperation({ summary: "Get today order stats for dashboard" })
+  getTodayStats(@CurrentUser("restaurantId") restaurantId: string) {
+    return this.ordersService.getTodayStats(restaurantId)
+  }
+
   @Get()
   @ApiOperation({ summary: "List orders with optional filters" })
   @ApiQuery({ name: "branchId", required: false })
@@ -116,10 +132,11 @@ export class OrdersController {
     return this.ordersService.getReceipt(id, restaurantId)
   }
 
+  @Public()
   @Get(":id/track")
-  @ApiOperation({ summary: "Track a single order by customer JWT" })
+  @ApiOperation({ summary: "Track a single order — public, no auth required" })
   trackOrder(
-    @CurrentUser("sub") customerId: string,
+    @CurrentUser("sub") customerId: string | undefined,
     @Param("id") id: string,
   ) {
     return this.ordersService.findOneForTracking(id, customerId)

@@ -29,8 +29,9 @@ model Restaurant {
   inventoryItems  InventoryItem[]
   shifts          Shift[]
   reservations    Reservation[]
-  coupons         Coupon[]
-  onlineSettings  RestaurantOnlineSettings?
+  coupons              Coupon[]
+  onlineSettings       RestaurantOnlineSettings?
+  loyaltyTransactions  LoyaltyTransaction[]
 }
 
 model Branch {
@@ -223,9 +224,10 @@ model Customer {
   isActive      Boolean           @default(true)
   createdAt     DateTime          @default(now())
   updatedAt     DateTime          @updatedAt
-  restaurant    Restaurant        @relation(fields: [restaurantId], references: [id])
-  orders        Order[]
-  addresses     CustomerAddress[]
+  restaurant          Restaurant          @relation(fields: [restaurantId], references: [id])
+  orders              Order[]
+  addresses           CustomerAddress[]
+  loyaltyTransactions LoyaltyTransaction[]
 
   @@unique([restaurantId, phone])
   @@index([restaurantId])
@@ -261,8 +263,10 @@ model Order {
   deliveryFee     Decimal     @default(0) @db.Decimal(10, 2)
   packagingFee    Decimal     @default(0) @db.Decimal(10, 2)
   tip             Decimal     @default(0) @db.Decimal(10, 2)
-  couponId        String?
-  couponDiscount  Decimal     @default(0) @db.Decimal(10, 2)
+  couponId             String?
+  couponDiscount       Decimal     @default(0) @db.Decimal(10, 2)
+  loyaltyPointsEarned  Int         @default(0)
+  eta                  Int?        // estimated prep time in minutes, set on CONFIRMED
   orderSource     OrderSource @default(QR_TABLE)
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -273,11 +277,23 @@ model Order {
   items         OrderItem[]
   payments      Payment[]
   kotTickets    KOTTicket[]
-  coupon        CouponUsage?
+  coupon             CouponUsage?
+  pushSubscriptions  PushSubscription[]
 
   @@index([restaurantId, status])
   @@index([restaurantId, createdAt])
   @@index([branchId])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  orderId   String?
+  createdAt DateTime @default(now())
+
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 model OrderItem {
@@ -593,19 +609,38 @@ model CouponUsage {
 }
 
 model RestaurantOnlineSettings {
-  id                    String     @id @default(cuid())
-  restaurantId          String     @unique
-  onlineOrderingEnabled Boolean    @default(true)
-  deliveryEnabled       Boolean    @default(true)
-  takeawayEnabled       Boolean    @default(true)
-  deliveryRadiusKm      Float      @default(10)
-  minOrderValue         Decimal    @default(0) @db.Decimal(10, 2)
-  deliveryFee           Decimal    @default(0) @db.Decimal(10, 2)
-  packagingFee          Decimal    @default(0) @db.Decimal(10, 2)
-  serviceChargePercent  Decimal    @default(0) @db.Decimal(5, 2)
-  estimatedPrepMins     Int        @default(20)
-  pickupPrepMins        Int        @default(15)
-  createdAt             DateTime   @default(now())
-  updatedAt             DateTime   @updatedAt
-  restaurant            Restaurant @relation(fields: [restaurantId], references: [id])
+  id                     String     @id @default(cuid())
+  restaurantId           String     @unique
+  onlineOrderingEnabled  Boolean    @default(true)
+  deliveryEnabled        Boolean    @default(true)
+  takeawayEnabled        Boolean    @default(true)
+  deliveryRadiusKm       Float      @default(10)
+  minOrderValue          Decimal    @default(0) @db.Decimal(10, 2)
+  deliveryFee            Decimal    @default(0) @db.Decimal(10, 2)
+  packagingFee           Decimal    @default(0) @db.Decimal(10, 2)
+  serviceChargePercent   Decimal    @default(0) @db.Decimal(5, 2)
+  estimatedPrepMins      Int        @default(20)
+  pickupPrepMins         Int        @default(15)
+  loyaltyPointsPerRupee  Float      @default(1)   // points earned per ₹1 spent
+  loyaltyRedemptionRate  Float      @default(0.25) // ₹ value per 1 point
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+  restaurant             Restaurant @relation(fields: [restaurantId], references: [id])
+}
+
+model LoyaltyTransaction {
+  id           String   @id @default(cuid())
+  customerId   String
+  restaurantId String
+  orderId      String?
+  points       Int      // positive = earned, negative = redeemed
+  type         String   // "EARNED" | "REDEEMED" | "ADJUSTED"
+  description  String?
+  createdAt    DateTime @default(now())
+
+  customer     Customer   @relation(fields: [customerId], references: [id])
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+
+  @@index([customerId])
+  @@index([restaurantId])
 }

@@ -7,6 +7,7 @@ import { useCartStore } from "@/stores/cart.store"
 import OrderTypeSelector from "@/components/OrderTypeSelector"
 import { fetchOnlineSettings, OnlineSettings } from "@/lib/online-settings"
 import { apiFetch } from "@/lib/api"
+import { registerPushAndSubscribe } from "@/lib/push"
 
 const TIP_PRESETS = [0, 10, 20, 30]
 
@@ -71,7 +72,7 @@ export default function CheckoutPage() {
   const [emailInput, setEmailInput] = useState(customerEmail ?? "")
 
   // Payment method
-  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "COUNTER" | "UPI">(
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "COUNTER">(
     orderType === "DELIVERY" ? "CASH" : "COUNTER"
   )
 
@@ -155,7 +156,7 @@ export default function CheckoutPage() {
     setCouponError("")
     setCouponLoading(true)
     try {
-      const data = await apiFetch<{ valid: boolean; discount: number; type: string }>(
+      const data = await apiFetch<{ valid: boolean; discountAmount: number; type: string }>(
         `/orders/coupon/${restaurantId}/${couponInput.trim().toUpperCase()}`
       )
       if (!data.valid) {
@@ -163,8 +164,8 @@ export default function CheckoutPage() {
         clearCoupon()
         return
       }
-      applyCoupon(couponInput.trim().toUpperCase(), data.discount)
-      toast.success(`Coupon applied! ₹${data.discount.toFixed(2)} off`)
+      applyCoupon(couponInput.trim().toUpperCase(), data.discountAmount)
+      toast.success(`Coupon applied! ₹${data.discountAmount.toFixed(2)} off`)
     } catch {
       setCouponError("Invalid or expired coupon code")
       clearCoupon()
@@ -183,6 +184,12 @@ export default function CheckoutPage() {
     if (!branchId) { toast.error("Branch info missing — rescan QR"); return }
     if (items.length === 0) { toast.error("Cart is empty"); return }
 
+    const subtotalCheck = total()
+    if (settings?.minOrderValue && subtotalCheck < settings.minOrderValue) {
+      toast.error(`Minimum order value is ₹${settings.minOrderValue}`)
+      return
+    }
+
     if (orderType === "DELIVERY") {
       if (!deliveryAddress?.trim()) { toast.error("Please enter a delivery address"); return }
       if (!nameInput.trim()) { toast.error("Please enter your name"); return }
@@ -191,6 +198,11 @@ export default function CheckoutPage() {
     if (orderType === "TAKEAWAY") {
       if (!nameInput.trim()) { toast.error("Please enter your name"); return }
       if (phoneInput.length < 10) { toast.error("Enter a valid 10-digit phone number"); return }
+    }
+
+    if ((orderType === "TAKEAWAY" || orderType === "DELIVERY") && scheduleMode === "later" && !scheduledInput) {
+      toast.error("Please select a time for your scheduled order")
+      return
     }
 
     if (nameInput.trim() || phoneInput) {
@@ -226,6 +238,8 @@ export default function CheckoutPage() {
         deliveryFee: deliveryFee > 0 ? deliveryFee : undefined,
         packagingFee: packagingFee > 0 ? packagingFee : undefined,
         scheduledFor: scheduledFor ?? undefined,
+        serviceChargePercent: settings?.serviceChargePercent ?? 0,
+        gstRate: 5,
       }
 
       if (orderType === "DELIVERY") {
@@ -251,11 +265,11 @@ export default function CheckoutPage() {
 
       if (typeof window !== "undefined") {
         const paymentLabel =
-          orderType === "TAKEAWAY" && paymentMethod !== "UPI"
+          orderType === "TAKEAWAY"
             ? "Pay at Counter"
-            : orderType === "DELIVERY" && paymentMethod !== "UPI"
+            : orderType === "DELIVERY"
             ? "Cash on Delivery"
-            : "UPI"
+            : ""
         localStorage.setItem("pk-last-order", JSON.stringify({ ...order, paymentLabel }))
         // Track order history (newest-first, max 20)
         try {
@@ -265,6 +279,8 @@ export default function CheckoutPage() {
         } catch { /* non-fatal */ }
       }
       clearCart()
+      // Register push notifications for this order (fire and forget)
+      registerPushAndSubscribe(order.id).catch(() => {})
       toast.success(`Order ${order.orderNumber} placed! 🎉`)
       router.push(`/order/${order.id}`)
     } catch (e) {
@@ -436,43 +452,54 @@ export default function CheckoutPage() {
           </div>
         )}
 
-        {/* Schedule */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            When?
-          </h2>
-          <div className="flex gap-2 mb-3">
-            <button
-              onClick={() => setScheduleMode("now")}
-              className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                scheduleMode === "now"
-                  ? "bg-orange-500 text-white border-orange-500"
-                  : "bg-white text-gray-600 border-gray-200"
-              }`}
-            >
-              Order Now
-            </button>
-            <button
-              onClick={() => setScheduleMode("later")}
-              className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                scheduleMode === "later"
-                  ? "bg-orange-500 text-white border-orange-500"
-                  : "bg-white text-gray-600 border-gray-200"
-              }`}
-            >
-              Schedule for Later
-            </button>
+        {/* Schedule — TAKEAWAY / DELIVERY only */}
+        {(orderType === "TAKEAWAY" || orderType === "DELIVERY") && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              When?
+            </h2>
+            <div className="flex gap-2 mb-3">
+              <button
+                onClick={() => setScheduleMode("now")}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  scheduleMode === "now"
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-gray-600 border-gray-200"
+                }`}
+              >
+                Order Now
+              </button>
+              <button
+                onClick={() => setScheduleMode("later")}
+                className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                  scheduleMode === "later"
+                    ? "bg-orange-500 text-white border-orange-500"
+                    : "bg-white text-gray-600 border-gray-200"
+                }`}
+              >
+                Schedule for Later
+              </button>
+            </div>
+            {scheduleMode === "later" && (
+              <>
+                <input
+                  type="datetime-local"
+                  min={minScheduleDateTime()}
+                  value={scheduledInput}
+                  onChange={(e) => setScheduledInput(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                {scheduledInput && (
+                  <p className="text-xs text-orange-600 font-medium mt-2">
+                    Your order will be ready at{" "}
+                    {new Date(scheduledInput).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })},{" "}
+                    {new Date(scheduledInput).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                  </p>
+                )}
+              </>
+            )}
           </div>
-          {scheduleMode === "later" && (
-            <input
-              type="datetime-local"
-              min={minScheduleDateTime()}
-              value={scheduledInput}
-              onChange={(e) => setScheduledInput(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-            />
-          )}
-        </div>
+        )}
 
         {/* Tip */}
         <div className="bg-white rounded-2xl p-4 shadow-sm">
@@ -571,30 +598,11 @@ export default function CheckoutPage() {
             <div className="flex gap-2 mb-3">
               <button
                 onClick={() => setPaymentMethod(orderType === "DELIVERY" ? "CASH" : "COUNTER")}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
-                  paymentMethod !== "UPI"
-                    ? "bg-orange-500 text-white border-orange-500"
-                    : "bg-white text-gray-600 border-gray-200"
-                }`}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors bg-orange-500 text-white border-orange-500"
               >
                 {orderType === "DELIVERY" ? "Cash on Delivery" : "Pay at Counter"}
               </button>
-              <button
-                onClick={() => setPaymentMethod("UPI")}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
-                  paymentMethod === "UPI"
-                    ? "bg-orange-500 text-white border-orange-500"
-                    : "bg-white text-gray-600 border-gray-200"
-                }`}
-              >
-                Pay via UPI
-              </button>
             </div>
-            {paymentMethod === "UPI" && (
-              <p className="text-xs text-gray-400 text-center mt-1">
-                UPI payment coming soon — pay at counter for now
-              </p>
-            )}
           </div>
         )}
 
@@ -663,9 +671,9 @@ export default function CheckoutPage() {
           {placing
             ? "Placing Order…"
             : `${
-                orderType === "TAKEAWAY" && paymentMethod !== "UPI"
+                orderType === "TAKEAWAY"
                   ? "Place Order (Pay at Counter)"
-                  : orderType === "DELIVERY" && paymentMethod !== "UPI"
+                  : orderType === "DELIVERY"
                   ? "Place Order (Cash on Delivery)"
                   : "Place Order"
               } · ₹${Math.max(0, grandTotal).toFixed(2)}`}

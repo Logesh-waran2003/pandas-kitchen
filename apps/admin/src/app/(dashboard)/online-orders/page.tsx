@@ -90,8 +90,9 @@ function timeAgo(date: string) {
 function OrderDetailSheet({ order, onClose, onStatusChange }: {
   order: Order
   onClose: () => void
-  onStatusChange: (id: string, status: OrderStatus) => Promise<void>
+  onStatusChange: (id: string, status: OrderStatus, eta?: number) => Promise<void>
 }) {
+  const [eta, setEta] = useState(20)
   const nexts = NEXT_STATUSES[order.status] ?? []
   const canCancel = !["PAID", "CANCELLED"].includes(order.status)
 
@@ -126,7 +127,7 @@ function OrderDetailSheet({ order, onClose, onStatusChange }: {
 
         <div className="flex-1 px-5 py-4 space-y-5">
           {/* Pickup code */}
-          {order.pickupCode && ["READY", "SERVED", "PAID"].includes(order.status) && (
+          {order.pickupCode && ["CONFIRMED", "PREPARING", "READY", "SERVED", "PAID"].includes(order.status) && (
             <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
               <p className="text-xs text-green-600 font-medium mb-1">Pickup Code</p>
               <p className="text-3xl font-black text-green-700 tracking-widest">{order.pickupCode}</p>
@@ -205,13 +206,27 @@ function OrderDetailSheet({ order, onClose, onStatusChange }: {
         {/* Actions */}
         <div className="px-5 py-4 border-t border-gray-200 space-y-2 bg-white">
           {nexts.map((n) => (
-            <button
-              key={n.status}
-              onClick={() => onStatusChange(order.id, n.status)}
-              className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${n.color}`}
-            >
-              {n.label}
-            </button>
+            <div key={n.status}>
+              {n.status === "CONFIRMED" && (
+                <div className="flex items-center gap-2 mb-1.5">
+                  <label className="text-xs text-gray-500 font-medium whitespace-nowrap">ETA (mins)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={120}
+                    value={eta}
+                    onChange={(e) => setEta(Number(e.target.value))}
+                    className="w-20 text-sm border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  />
+                </div>
+              )}
+              <button
+                onClick={() => onStatusChange(order.id, n.status, n.status === "CONFIRMED" ? eta : undefined)}
+                className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${n.color}`}
+              >
+                {n.label}
+              </button>
+            </div>
           ))}
           {canCancel && !nexts.find((n) => n.status === "CANCELLED") && (
             <button
@@ -265,19 +280,19 @@ export default function OnlineOrdersPage() {
       if (selectedOrder?.id === o.id) setSelectedOrder(o)
     }
 
-    socket.on("order:created", onOrderCreated)
-    socket.on("order:updated", onOrderUpdated)
+    socket.on("order.created", onOrderCreated)
+    socket.on("order.status_changed", onOrderUpdated)
     return () => {
-      socket.off("order:created", onOrderCreated)
-      socket.off("order:updated", onOrderUpdated)
+      socket.off("order.created", onOrderCreated)
+      socket.off("order.status_changed", onOrderUpdated)
     }
   }, [accessToken, selectedOrder?.id])
 
-  async function handleStatusChange(id: string, status: OrderStatus) {
+  async function handleStatusChange(id: string, status: OrderStatus, eta?: number) {
     try {
       const updated = await apiFetch<Order>(`/orders/${id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...(status === "CONFIRMED" && eta ? { eta } : {}) }),
       })
       setOrders((prev) => prev.map((o) => o.id === id ? updated : o))
       if (selectedOrder?.id === id) setSelectedOrder(updated)

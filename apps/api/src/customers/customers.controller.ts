@@ -49,6 +49,15 @@ export class CustomersController {
 
   // ── Customer address management ───────────────────────────────────────────────
 
+  @Get("me/loyalty-balance/:restaurantId")
+  @ApiOperation({ summary: "Customer: get current loyalty points balance" })
+  getLoyaltyBalance(
+    @CurrentUser("sub") customerId: string,
+    @Param("restaurantId") restaurantId: string,
+  ) {
+    return this.customersService.getLoyaltyBalance(customerId, restaurantId)
+  }
+
   @Get("me/addresses")
   @ApiOperation({ summary: "Customer: list own addresses" })
   getAddresses(@CurrentUser("sub") customerId: string) {

@@ -18,6 +18,8 @@ import { ShiftsModule } from "./shifts/shifts.module"
 import { AiModule } from "./ai/ai.module"
 import { EmployeesModule } from "./employees/employees.module"
 import { ReservationsModule } from "./reservations/reservations.module"
+import { PushModule } from "./push/push.module"
+import { CouponsModule } from "./coupons/coupons.module"
 
 @Module({
   imports: [
@@ -39,6 +41,8 @@ import { ReservationsModule } from "./reservations/reservations.module"
     AiModule,
     EmployeesModule,
     ReservationsModule,
+    PushModule,
+    CouponsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

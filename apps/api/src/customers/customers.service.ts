@@ -19,6 +19,25 @@ export class CustomersService {
     private jwt: JwtService,
   ) {}
 
+  async getLoyaltyBalance(customerId: string, restaurantId: string) {
+    const [customer, settings] = await Promise.all([
+      this.prisma.customer.findUnique({ where: { id: customerId }, select: { loyaltyPoints: true, restaurantId: true } }),
+      this.prisma.restaurantOnlineSettings.findUnique({
+        where: { restaurantId },
+        select: { loyaltyRedemptionRate: true },
+      }),
+    ])
+
+    if (!customer) throw new NotFoundException("Customer not found")
+    if (customer.restaurantId !== restaurantId) throw new ForbiddenException()
+
+    const redemptionRate = settings?.loyaltyRedemptionRate ?? 0.25
+    return {
+      points: customer.loyaltyPoints,
+      valueInRupees: parseFloat((customer.loyaltyPoints * redemptionRate).toFixed(2)),
+    }
+  }
+
   async listCustomers(restaurantId: string, search?: string) {
     const where: any = { restaurantId, isActive: true }
 

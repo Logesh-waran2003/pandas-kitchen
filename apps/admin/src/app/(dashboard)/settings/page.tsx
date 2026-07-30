@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { apiFetch } from "@/lib/api"
 import { toast } from "sonner"
-import { Plus, Pencil, X, Users, Building2, Store, Shield, Trash2, ChefHat } from "lucide-react"
+import { Plus, Pencil, X, Users, Building2, Store, Shield, Trash2, ChefHat, Globe } from "lucide-react"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -853,9 +853,211 @@ function DepartmentModal({
   )
 }
 
+// ─── Tab 6: Online Settings ───────────────────────────────────────────────────
+
+interface OnlineSettings {
+  onlineOrderingEnabled: boolean
+  deliveryEnabled: boolean
+  takeawayEnabled: boolean
+  deliveryRadiusKm: number
+  minOrderValue: number
+  deliveryFee: number
+  packagingFee: number
+  serviceChargePercent: number
+  estimatedPrepMins: number
+  pickupPrepMins: number
+  loyaltyPointsPerRupee: number
+  loyaltyRedemptionRate: number
+}
+
+function OnlineSettingsTab() {
+  const [data, setData] = useState<OnlineSettings | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  async function load() {
+    setLoading(true)
+    setError(null)
+    try {
+      setData(await apiFetch<OnlineSettings>("/settings/online"))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault()
+    if (!data) return
+    setSaving(true)
+    try {
+      await apiFetch("/settings/online", {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      })
+      toast.success("Online settings saved")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function setNum(key: keyof OnlineSettings, value: string) {
+    setData((d) => d ? { ...d, [key]: Number(value) } : d)
+  }
+
+  function setBool(key: keyof OnlineSettings, value: boolean) {
+    setData((d) => d ? { ...d, [key]: value } : d)
+  }
+
+  if (loading) {
+    return (
+      <div className="animate-pulse space-y-4 max-w-lg">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i}>
+            <div className="h-4 w-32 bg-gray-200 rounded mb-2" />
+            <div className="h-10 bg-gray-100 rounded-lg" />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (error || !data) {
+    return (
+      <div className="border border-red-200 bg-red-50 rounded-xl p-5 flex items-center justify-between max-w-lg">
+        <p className="text-red-600 text-sm">{error ?? "Failed to load"}</p>
+        <button onClick={load} className="text-sm text-red-600 underline">Retry</button>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSave} className="space-y-8 max-w-lg">
+      {/* Order channels */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-800">Order Channels</h3>
+        {(
+          [
+            ["onlineOrderingEnabled", "Online Ordering"],
+            ["deliveryEnabled", "Delivery"],
+            ["takeawayEnabled", "Takeaway"],
+          ] as [keyof OnlineSettings, string][]
+        ).map(([key, label]) => (
+          <label key={key} className="flex items-center justify-between py-1">
+            <span className="text-sm text-gray-700">{label}</span>
+            <button
+              type="button"
+              onClick={() => setBool(key, !(data[key] as boolean))}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                data[key] ? "bg-green-500" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                  data[key] ? "translate-x-4" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </label>
+        ))}
+      </div>
+
+      {/* Fees */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-800">Fees & Limits</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Min Order (₹)</label>
+            <input type="number" min={0} step="0.01" value={data.minOrderValue} onChange={(e) => setNum("minOrderValue", e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Radius (km)</label>
+            <input type="number" min={0} step="0.1" value={data.deliveryRadiusKm} onChange={(e) => setNum("deliveryRadiusKm", e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Delivery Fee (₹)</label>
+            <input type="number" min={0} step="0.01" value={data.deliveryFee} onChange={(e) => setNum("deliveryFee", e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Packaging Fee (₹)</label>
+            <input type="number" min={0} step="0.01" value={data.packagingFee} onChange={(e) => setNum("packagingFee", e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Service Charge (%)</label>
+            <input type="number" min={0} max={100} step="0.01" value={data.serviceChargePercent} onChange={(e) => setNum("serviceChargePercent", e.target.value)} className={inputCls} />
+          </div>
+        </div>
+      </div>
+
+      {/* Prep times */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-800">Preparation Times</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Delivery / Dine-in (mins)</label>
+            <input type="number" min={0} step={1} value={data.estimatedPrepMins} onChange={(e) => setNum("estimatedPrepMins", e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Pickup / Takeaway (mins)</label>
+            <input type="number" min={0} step={1} value={data.pickupPrepMins} onChange={(e) => setNum("pickupPrepMins", e.target.value)} className={inputCls} />
+          </div>
+        </div>
+      </div>
+
+      {/* Loyalty */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-800">Loyalty Points</h3>
+        <p className="text-xs text-gray-500">
+          Points are awarded on order creation based on subtotal × rate. Customers redeem points at the configured rupee value.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Points per ₹1 spent</label>
+            <input
+              type="number"
+              min={0}
+              step="0.1"
+              value={data.loyaltyPointsPerRupee}
+              onChange={(e) => setNum("loyaltyPointsPerRupee", e.target.value)}
+              className={inputCls}
+            />
+            <p className="text-xs text-gray-400 mt-1">e.g. 1 = earn 1 pt per ₹1</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">₹ value per 1 point</label>
+            <input
+              type="number"
+              min={0}
+              step="0.01"
+              value={data.loyaltyRedemptionRate}
+              onChange={(e) => setNum("loyaltyRedemptionRate", e.target.value)}
+              className={inputCls}
+            />
+            <p className="text-xs text-gray-400 mt-1">e.g. 0.25 = 100 pts = ₹25</p>
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="submit"
+        disabled={saving}
+        className="bg-orange-500 hover:bg-orange-600 text-white px-5 py-2 rounded-lg text-sm font-medium disabled:opacity-60"
+      >
+        {saving ? "Saving…" : "Save Settings"}
+      </button>
+    </form>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = "profile" | "branches" | "staff" | "security" | "kitchen"
+type Tab = "profile" | "branches" | "staff" | "security" | "kitchen" | "online"
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "profile", label: "Restaurant Profile", icon: Store },
@@ -863,6 +1065,7 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "staff", label: "Staff", icon: Users },
   { id: "security", label: "Security", icon: Shield },
   { id: "kitchen", label: "Kitchen Sections", icon: ChefHat },
+  { id: "online", label: "Online Settings", icon: Globe },
 ]
 
 export default function SettingsPage() {
@@ -902,6 +1105,7 @@ export default function SettingsPage() {
         {activeTab === "staff" && <StaffTab branches={branches} />}
         {activeTab === "security" && <SecurityTab />}
         {activeTab === "kitchen" && <KitchenSectionsTab branches={branches} />}
+        {activeTab === "online" && <OnlineSettingsTab />}
       </div>
     </div>
   )

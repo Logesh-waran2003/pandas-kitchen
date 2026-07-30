@@ -681,7 +681,13 @@ export class OrdersService {
 
     const gstRate = new Decimal(order.gstRate)
     const gstAmount = subtotal.mul(gstRate).div(100).toDecimalPlaces(2)
+    const { couponDiscount, serviceCharge, deliveryFee, packagingFee, tip } = order
     const total = subtotal.add(gstAmount)
+      .add(serviceCharge ?? 0)
+      .add(deliveryFee ?? 0)
+      .add(packagingFee ?? 0)
+      .add(tip ?? 0)
+      .sub(couponDiscount ?? 0)
 
     await this.prisma.orderItem.createMany({ data: newItems })
 

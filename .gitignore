@@ -10,3 +10,9 @@ build/
 prisma/migrations/dev.db
 .turbo/
 coverage/
+
+# Build caches
+*.tsbuildinfo
+
+# Agent session artefacts
+.claude/done-flags/

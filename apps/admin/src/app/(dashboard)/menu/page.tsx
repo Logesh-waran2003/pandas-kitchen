@@ -200,6 +200,7 @@ function ItemModal({
   )
   const [isAvailable, setIsAvailable] = useState(editing?.isAvailable ?? true)
   const [imageUrl, setImageUrl] = useState(editing?.imageUrl ?? "")
+  const [uploading, setUploading] = useState(false)
   const [departmentId, setDepartmentId] = useState(editing?.departmentId ?? "")
   const [allergensInput, setAllergensInput] = useState((editing?.allergens ?? []).join(", "))
   const [departments, setDepartments] = useState<Department[]>([])
@@ -210,6 +211,33 @@ function ItemModal({
       .then(setDepartments)
       .catch(() => {})
   }, [])
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const { uploadUrl, publicUrl } = await apiFetch<{ uploadUrl: string; publicUrl: string; key: string }>(
+        "/upload/presign",
+        {
+          method: "POST",
+          body: JSON.stringify({ filename: file.name, contentType: file.type }),
+        }
+      )
+      await fetch(uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type },
+      })
+      setImageUrl(publicUrl)
+      toast.success("Image uploaded")
+    } catch {
+      toast.error("Upload failed")
+    } finally {
+      setUploading(false)
+      e.target.value = ""
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -349,13 +377,25 @@ function ItemModal({
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
-          <input
-            type="url"
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            placeholder="https://…"
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              className="border border-gray-200 rounded-lg px-3 py-2 flex-1 focus:outline-none focus:ring-2 focus:ring-orange-500 text-sm"
+              placeholder="https://... or upload"
+            />
+            <label className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors border ${uploading ? "opacity-50 cursor-not-allowed border-gray-200 text-gray-400" : "border-orange-200 text-orange-600 hover:bg-orange-50"}`}>
+              {uploading ? "Uploading…" : "Upload"}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={uploading}
+                onChange={handleImageUpload}
+              />
+            </label>
+          </div>
           {imageUrl && (
             <img
               src={imageUrl}

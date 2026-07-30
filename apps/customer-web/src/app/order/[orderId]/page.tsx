@@ -1,12 +1,12 @@
 "use client"
 import { useEffect, useState, useRef } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { CheckCircle, Clock, ChefHat, Bell, Utensils, HelpCircle, PartyPopper, XCircle, BellRing, Receipt } from "lucide-react"
+import { CheckCircle, Clock, ChefHat, Bell, Utensils, HelpCircle, PartyPopper, XCircle, BellRing, Receipt, RefreshCw, RotateCcw } from "lucide-react"
 import { connectSocket, disconnectSocket } from "@/lib/socket"
 import { useCartStore } from "@/stores/cart.store"
 
-type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "SERVED" | "CANCELLED"
+type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "SERVED" | "PAID" | "CANCELLED"
 
 interface OrderItem {
   id: string
@@ -25,9 +25,18 @@ interface Order {
   total: number
   subtotal?: number
   tax?: number
+  serviceCharge?: number
+  deliveryFee?: number
+  packagingFee?: number
+  tip?: number
+  couponDiscount?: number
+  orderType?: "DINE_IN" | "TAKEAWAY" | "DELIVERY"
+  pickupCode?: string | null
   items: OrderItem[]
   table?: { tableNumber: string } | null
+  customer?: { name?: string; phone?: string } | null
   createdAt?: string
+  paymentLabel?: string
 }
 
 const STATUS_STEPS: { key: OrderStatus; label: string; icon: React.ReactNode }[] = [
@@ -53,6 +62,7 @@ function StatusMessage({ status }: { status: OrderStatus }) {
     PREPARING: "Your food is being prepared. Sit tight! 🍳",
     READY:     "Your order is ready! A waiter will bring it to you shortly.",
     SERVED:    "Enjoy your meal! 😊",
+    PAID:      "Payment received. Thank you! 🙏",
     CANCELLED: "Your order was cancelled.",
   }
   return <p className="text-sm text-gray-500 text-center mt-2">{msgs[status]}</p>
@@ -80,8 +90,64 @@ function getCancelSecondsLeft(createdAt: string | undefined): number {
   return Math.max(0, Math.floor((2 * 60 * 1000 - elapsed) / 1000))
 }
 
+function downloadReceipt(order: Order) {
+  const win = window.open("", "_blank")
+  if (!win) return
+  const items = order.items.map((i) =>
+    `<tr>
+      <td style="padding:4px 0">${i.menuItem?.name ?? i.name ?? "Item"}${i.variantName ? ` (${i.variantName})` : ""}</td>
+      <td style="text-align:center;padding:4px 8px">×${i.quantity}</td>
+      <td style="text-align:right;padding:4px 0">₹${Number(i.totalPrice).toFixed(2)}</td>
+    </tr>`
+  ).join("")
+
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Receipt</title>
+<style>
+  body { font-family: 'Courier New', monospace; max-width: 320px; margin: 20px auto; font-size: 13px; color: #000; }
+  h2 { text-align: center; margin: 0; font-size: 18px; }
+  .sub { text-align: center; font-size: 11px; color: #555; margin-bottom: 8px; }
+  hr { border: none; border-top: 1px dashed #999; margin: 8px 0; }
+  table { width: 100%; border-collapse: collapse; }
+  .total { font-weight: bold; font-size: 15px; }
+  .footer { text-align: center; margin-top: 12px; font-size: 11px; }
+  @media print { body { margin: 0; } }
+</style></head><body>
+<h2>🐼 Pandas Kitchen</h2>
+<div class="sub">Online Order Receipt</div>
+<hr>
+<div>Order: <b>#${order.orderNumber}</b></div>
+<div>Date: ${new Date(order.createdAt ?? Date.now()).toLocaleString()}</div>
+<div>Type: ${order.orderType?.replace("_", " ")}</div>
+${order.customer ? `<div>Name: ${order.customer.name}</div><div>Phone: ${order.customer.phone}</div>` : ""}
+<hr>
+<table>
+  <thead><tr><th style="text-align:left">Item</th><th>Qty</th><th style="text-align:right">Price</th></tr></thead>
+  <tbody>${items}</tbody>
+</table>
+<hr>
+<table>
+  <tr><td>Subtotal</td><td style="text-align:right">₹${Number(order.subtotal).toFixed(2)}</td></tr>
+  <tr><td>Tax</td><td style="text-align:right">₹${Number(order.tax).toFixed(2)}</td></tr>
+  ${Number(order.serviceCharge) > 0 ? `<tr><td>Service charge</td><td style="text-align:right">₹${Number(order.serviceCharge).toFixed(2)}</td></tr>` : ""}
+  ${Number(order.deliveryFee) > 0 ? `<tr><td>Delivery fee</td><td style="text-align:right">₹${Number(order.deliveryFee).toFixed(2)}</td></tr>` : ""}
+  ${Number(order.packagingFee) > 0 ? `<tr><td>Packaging fee</td><td style="text-align:right">₹${Number(order.packagingFee).toFixed(2)}</td></tr>` : ""}
+  ${Number(order.tip) > 0 ? `<tr><td>Tip</td><td style="text-align:right">₹${Number(order.tip).toFixed(2)}</td></tr>` : ""}
+  ${Number(order.couponDiscount) > 0 ? `<tr><td>Coupon discount</td><td style="text-align:right">−₹${Number(order.couponDiscount).toFixed(2)}</td></tr>` : ""}
+  <tr class="total"><td><b>Total</b></td><td style="text-align:right"><b>₹${Number(order.total).toFixed(2)}</b></td></tr>
+</table>
+<hr>
+<div class="footer">Thank you for your order! 🙏<br>Pandas Kitchen</div>
+<script>window.onload = () => window.print()</script>
+</body></html>`
+
+  win.document.write(html)
+  win.document.close()
+}
+
 export default function OrderTrackerPage() {
   const { orderId } = useParams<{ orderId: string }>()
+  const router = useRouter()
   const [order, setOrder] = useState<Order | null>(null)
   const [paymentConfirmed, setPaymentConfirmed] = useState(false)
   const [cancelled, setCancelled] = useState(false)
@@ -89,11 +155,29 @@ export default function OrderTrackerPage() {
   const [cancelling, setCancelling] = useState(false)
   const [waiterSent, setWaiterSent] = useState(false)
   const [billSent, setBillSent] = useState(false)
+  const [selectedRating, setSelectedRating] = useState(0)
+  const [hoverRating, setHoverRating] = useState(0)
+  const [submittingRating, setSubmittingRating] = useState(false)
+  const [rated, setRated] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const cancelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const socketRef = useRef<ReturnType<typeof connectSocket> | null>(null)
+  const readyNotifiedRef = useRef(false)
 
   const tableId = useCartStore((s) => s.tableId)
   const branchId = useCartStore((s) => s.branchId)
+  const restaurantId = useCartStore((s) => s.restaurantId)
+  const addItem = useCartStore((s) => s.addItem)
+  const cartItems = useCartStore((s) => s.items)
+
+  // ── Request notification permission on mount ─────────────────────────────
+  useEffect(() => {
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "default") {
+        Notification.requestPermission().catch(() => { /* non-fatal */ })
+      }
+    }
+  }, [])
 
   // ── Load order from localStorage ─────────────────────────────────────────
   useEffect(() => {
@@ -142,6 +226,15 @@ export default function OrderTrackerPage() {
         setCancelSecondsLeft(0)
         if (cancelTimerRef.current) clearInterval(cancelTimerRef.current)
       }
+      if (data.status === "READY" && !readyNotifiedRef.current) {
+        readyNotifiedRef.current = true
+        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+          new Notification("Your order is ready! 🎉", {
+            body: "Come pick it up at the counter.",
+            icon: "/favicon.ico",
+          })
+        }
+      }
     })
 
     socket.on("payment.completed", (data: { orderId: string }) => {
@@ -165,6 +258,42 @@ export default function OrderTrackerPage() {
     }
   }, [orderId])
 
+  // ── Manual refresh ────────────────────────────────────────────────────────
+  async function handleRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      const token = getCustomerToken()
+      const headers: Record<string, string> = { "Content-Type": "application/json" }
+      if (token) headers["Authorization"] = `Bearer ${token}`
+      const res = await fetch(`${API_BASE}/orders/${orderId}`, { headers })
+      if (!res.ok) throw new Error("Failed to fetch order")
+      const data = await res.json() as Order
+      setOrder((prev) => ({ ...(prev ?? {}), ...data }))
+      if (data.status === "CANCELLED") setCancelled(true)
+    } catch {
+      toast.error("Could not refresh order")
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  // ── Reorder ───────────────────────────────────────────────────────────────
+  function handleReorder() {
+    if (!order || !restaurantId) return
+    order.items.forEach((item) => {
+      const name = item.name ?? item.menuItem?.name ?? "Item"
+      addItem({
+        menuItemId: item.menuItem?.id ?? item.id,
+        name,
+        price: Number(item.unitPrice),
+        quantity: item.quantity,
+        variantName: item.variantName ?? undefined,
+      })
+    })
+    router.push("/checkout")
+  }
+
   // ── Call waiter / request bill ────────────────────────────────────────────
   function handleCallWaiter() {
     if (!tableId || !branchId || !socketRef.current) return
@@ -186,6 +315,26 @@ export default function OrderTrackerPage() {
     })
     setBillSent(true)
     setTimeout(() => setBillSent(false), 2000)
+  }
+
+  async function handleSubmitRating() {
+    const customerId = getCustomerId()
+    if (!customerId || !selectedRating) return
+    setSubmittingRating(true)
+    try {
+      const res = await fetch(`${API_BASE}/orders/${orderId}/rating`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: selectedRating, customerId }),
+      })
+      if (!res.ok) throw new Error("Failed to submit rating")
+      setRated(true)
+      toast.success("Rating submitted!")
+    } catch {
+      toast.error("Could not submit rating")
+    } finally {
+      setSubmittingRating(false)
+    }
   }
 
   // ── Cancel handler ────────────────────────────────────────────────────────
@@ -258,14 +407,36 @@ export default function OrderTrackerPage() {
     <div className="min-h-screen bg-gray-50 pb-10">
       {/* Header */}
       <div className="bg-orange-500 px-4 py-5 text-white">
-        <p className="text-sm opacity-80 mb-0.5">Order Tracker</p>
-        <h1 className="text-2xl font-extrabold">{order.orderNumber}</h1>
-        {order.table && (
-          <p className="text-sm opacity-80 mt-0.5">Table {order.table.tableNumber}</p>
-        )}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm opacity-80 mb-0.5">Order Tracker</p>
+            <h1 className="text-2xl font-extrabold">{order.orderNumber}</h1>
+            {order.table && (
+              <p className="text-sm opacity-80 mt-0.5">Table {order.table.tableNumber}</p>
+            )}
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            aria-label="Refresh order status"
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 active:bg-white/40 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 text-white ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
       <div className="px-4 py-5 space-y-5">
+        {/* READY banner */}
+        {order.status === "READY" && (
+          <div className="bg-green-500 rounded-2xl p-4 text-white text-center shadow-sm">
+            <p className="text-xl font-extrabold mb-0.5">Your order is ready! 🎉</p>
+            {order.orderType === "TAKEAWAY" && order.pickupCode && (
+              <p className="text-sm opacity-90">Show your pickup code at the counter</p>
+            )}
+          </div>
+        )}
+
         {/* 2-minute cancel window */}
         {order.status === "PENDING" && cancelSecondsLeft > 0 && (
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-orange-100 flex items-center justify-between gap-3">
@@ -337,7 +508,40 @@ export default function OrderTrackerPage() {
           </div>
 
           <StatusMessage status={order.status} />
+
+          {/* Estimated time */}
+          {(order.status === "PENDING" || order.status === "CONFIRMED") && (
+            <p className="text-xs text-center text-orange-500 font-medium mt-2">
+              ⏱ Estimated ready in ~20 mins
+            </p>
+          )}
+          {order.status === "PREPARING" && (
+            <p className="text-xs text-center text-orange-500 font-medium mt-2">
+              🍳 Almost ready! ~10 mins
+            </p>
+          )}
+          {order.status === "READY" && (
+            <p className="text-xs text-center text-green-600 font-semibold mt-2">
+              ✅ Ready now!
+            </p>
+          )}
         </div>
+
+        {/* Pickup code card — shown for TAKEAWAY from CONFIRMED onwards */}
+        {order.orderType === "TAKEAWAY" && order.pickupCode &&
+          (["CONFIRMED", "PREPARING", "READY", "PAID"].includes(order.status)) && (
+          <div className="bg-orange-50 border-2 border-orange-400 rounded-2xl p-5 text-center shadow-sm">
+            <p className="text-sm font-semibold text-orange-700 mb-2 uppercase tracking-wide">
+              Your Pickup Code
+            </p>
+            <p className="text-5xl font-black text-orange-600 tracking-widest mb-3">
+              {order.pickupCode}
+            </p>
+            <p className="text-sm text-orange-700">
+              Show this code at the counter to collect your order
+            </p>
+          </div>
+        )}
 
         {/* Items */}
         <div className="bg-white rounded-2xl p-5 shadow-sm">
@@ -380,19 +584,35 @@ export default function OrderTrackerPage() {
               <span>Total</span>
               <span>₹{Number(order.total).toFixed(2)}</span>
             </div>
+            {order.paymentLabel && (
+              <div className="flex justify-between text-sm text-gray-500 pt-1 border-t border-gray-100 mt-1">
+                <span>Payment</span>
+                <span>{order.paymentLabel}</span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Receipt link for served/paid orders */}
-        {(order.status === "SERVED" || (order as any).status === "PAID") && (
-          <a
-            href={`${process.env.NEXT_PUBLIC_ADMIN_URL ?? "http://localhost:3000"}/orders/${orderId}/receipt`}
-            target="_blank"
-            rel="noopener noreferrer"
+        {/* Reorder — shown for PAID orders */}
+        {order.status === "PAID" && restaurantId && (
+          <button
+            onClick={handleReorder}
+            className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3.5 font-semibold text-sm transition-colors"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Reorder
+          </button>
+        )}
+
+        {/* Download Receipt */}
+        {(order.status === "SERVED" || order.status === "PAID") && (
+          <button
+            onClick={() => downloadReceipt(order)}
             className="w-full flex items-center justify-center gap-2 border-2 border-orange-200 text-orange-600 rounded-2xl py-3.5 font-semibold text-sm bg-white"
           >
-            🧾 View Receipt
-          </a>
+            <Receipt className="w-4 h-4" />
+            Download Receipt
+          </button>
         )}
 
         {/* Call Waiter + Request Bill */}
@@ -414,6 +634,42 @@ export default function OrderTrackerPage() {
               <Receipt className="w-4 h-4" />
               {billSent ? "Sent!" : "Request Bill"}
             </button>
+          </div>
+        )}
+
+        {/* Star rating card */}
+        {(order.status === "SERVED" || order.status === "PAID") && !rated && (
+          <div className="bg-white rounded-2xl p-5 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-700 mb-3 text-center">How was your meal?</h2>
+            <div className="flex justify-center gap-2 mb-4">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => setSelectedRating(star)}
+                  onMouseEnter={() => setHoverRating(star)}
+                  onMouseLeave={() => setHoverRating(0)}
+                  className={`text-3xl transition-transform hover:scale-110 ${
+                    star <= (hoverRating || selectedRating) ? "text-orange-400" : "text-gray-200"
+                  }`}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+            {selectedRating > 0 && (
+              <button
+                onClick={handleSubmitRating}
+                disabled={submittingRating}
+                className="w-full bg-orange-500 hover:bg-orange-600 text-white rounded-2xl py-3 font-semibold text-sm transition-colors disabled:opacity-50"
+              >
+                {submittingRating ? "Submitting…" : "Submit Rating"}
+              </button>
+            )}
+          </div>
+        )}
+        {rated && (order.status === "SERVED" || order.status === "PAID") && (
+          <div className="bg-orange-50 rounded-2xl p-4 text-center border border-orange-100">
+            <p className="text-orange-600 font-semibold text-sm">Thanks for your feedback! ⭐</p>
           </div>
         )}
 

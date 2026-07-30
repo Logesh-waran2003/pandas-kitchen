@@ -13,8 +13,10 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from "@nestjs/swagger"
 import { CustomersService } from "./customers.service"
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard"
 import { CurrentUser } from "../auth/decorators/current-user.decorator"
+import { Public } from "../auth/decorators/public.decorator"
 import { CreateCustomerDto } from "./dto/create-customer.dto"
 import { UpdateCustomerDto } from "./dto/update-customer.dto"
+import { CustomerRegisterDto, CustomerLoginDto, AddAddressDto } from "./dto/customer-auth.dto"
 
 @ApiTags("customers")
 @ApiBearerAuth()
@@ -22,6 +24,56 @@ import { UpdateCustomerDto } from "./dto/update-customer.dto"
 @Controller("customers")
 export class CustomersController {
   constructor(private customersService: CustomersService) {}
+
+  // ── Customer self-service auth ────────────────────────────────────────────────
+
+  @Public()
+  @Post(":restaurantId/register")
+  @ApiOperation({ summary: "Customer: register with password" })
+  registerCustomer(
+    @Param("restaurantId") restaurantId: string,
+    @Body() dto: CustomerRegisterDto,
+  ) {
+    return this.customersService.registerCustomer(restaurantId, dto)
+  }
+
+  @Public()
+  @Post(":restaurantId/login")
+  @ApiOperation({ summary: "Customer: login with phone + password" })
+  loginCustomer(
+    @Param("restaurantId") restaurantId: string,
+    @Body() dto: CustomerLoginDto,
+  ) {
+    return this.customersService.loginCustomer(restaurantId, dto)
+  }
+
+  // ── Customer address management ───────────────────────────────────────────────
+
+  @Get("me/addresses")
+  @ApiOperation({ summary: "Customer: list own addresses" })
+  getAddresses(@CurrentUser("sub") customerId: string) {
+    return this.customersService.getAddresses(customerId)
+  }
+
+  @Post("me/addresses")
+  @ApiOperation({ summary: "Customer: add a new address" })
+  addAddress(
+    @CurrentUser("sub") customerId: string,
+    @Body() dto: AddAddressDto,
+  ) {
+    return this.customersService.addAddress(customerId, dto)
+  }
+
+  @Delete("me/addresses/:id")
+  @ApiOperation({ summary: "Customer: delete an address" })
+  deleteAddress(
+    @CurrentUser("sub") customerId: string,
+    @Param("id") id: string,
+  ) {
+    return this.customersService.deleteAddress(customerId, id)
+  }
+
+  // ── Admin CRUD ────────────────────────────────────────────────────────────────
 
   @Get()
   @ApiOperation({ summary: "List customers for the restaurant" })

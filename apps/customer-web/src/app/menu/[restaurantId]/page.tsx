@@ -4,7 +4,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/api"
 import { useCartStore } from "@/stores/cart.store"
 import { toast } from "sonner"
-import { ShoppingCart, Plus, Minus, Search, X, Leaf, Phone, User, MessageSquare, Send } from "lucide-react"
+import { ShoppingCart, Plus, Minus, Search, X, Leaf, MessageSquare, Send, User } from "lucide-react"
 import { connectSocket, disconnectSocket } from "@/lib/socket"
 
 interface Category {
@@ -49,10 +49,6 @@ function getCustomerAuth(): CustomerAuth | null {
   } catch { return null }
 }
 
-function setCustomerAuth(auth: CustomerAuth) {
-  localStorage.setItem("pk-customer-auth", JSON.stringify(auth))
-}
-
 export default function MenuPage() {
   const { restaurantId } = useParams<{ restaurantId: string }>()
   const searchParams = useSearchParams()
@@ -70,17 +66,6 @@ export default function MenuPage() {
   const [variants, setVariants] = useState<Variant[]>([])
   const [cartOpen, setCartOpen] = useState(false)
 
-  // Login modal state
-  const [showLogin, setShowLogin] = useState(false)
-  const [loginFirstName, setLoginFirstName] = useState("")
-  const [loginPhone, setLoginPhone] = useState("")
-  const [loginLoading, setLoginLoading] = useState(false)
-
-  // Order placing state
-  const [placing, setPlacing] = useState(false)
-  const [orderType, setOrderType] = useState<"DINE_IN" | "DELIVERY">("DINE_IN")
-  const [deliveryAddress, setDeliveryAddress] = useState("")
-  const [paxCount, setPaxCount] = useState(1)
   const [expandedNoteItemKey, setExpandedNoteItemKey] = useState<string | null>(null)
 
   // AI chat state
@@ -90,7 +75,7 @@ export default function MenuPage() {
   const [chatLoading, setChatLoading] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
-  const { items: cartItems, addItem, updateQty, updateNote, clearCart, total } = useCartStore()
+  const { items: cartItems, addItem, updateQty, updateNote, total } = useCartStore()
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
 
   // ── Load menu data ─────────────────────────────────────────────────────────
@@ -179,80 +164,11 @@ export default function MenuPage() {
     setVariantItem(null)
   }
 
-  // ── Order placement ────────────────────────────────────────────────────────
-  function handlePlaceOrderClick() {
-    if (!branchId) { toast.error("Table info missing"); return }
+  // ── Checkout navigation ────────────────────────────────────────────────────
+  function handleCheckout() {
     if (cartItems.length === 0) { toast.error("Cart is empty"); return }
-    if (orderType === "DELIVERY" && !deliveryAddress.trim()) {
-      toast.error("Please enter a delivery address"); return
-    }
-    const auth = getCustomerAuth()
-    if (!auth) {
-      setShowLogin(true)
-      return
-    }
-    submitOrder(auth.customerId)
-  }
-
-  async function handleLoginSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (loginPhone.length < 10) { toast.error("Enter a valid 10-digit phone number"); return }
-    if (!loginFirstName.trim()) { toast.error("Please enter your name"); return }
-
-    setLoginLoading(true)
-    try {
-      const res = await apiFetch<{ token: string; customerId: string }>("/auth/customer/login", {
-        method: "POST",
-        body: JSON.stringify({ restaurantId, phone: loginPhone, firstName: loginFirstName.trim() }),
-      })
-      const auth: CustomerAuth = { token: res.token, customerId: res.customerId, firstName: loginFirstName.trim() }
-      setCustomerAuth(auth)
-      setShowLogin(false)
-      submitOrder(auth.customerId)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Login failed. Please try again.")
-    } finally {
-      setLoginLoading(false)
-    }
-  }
-
-  async function submitOrder(customerId?: string) {
-    if (!branchId) return
-    setPlacing(true)
     setCartOpen(false)
-    try {
-      const order = await apiFetch<{ id: string; orderNumber: string; status: string; total: number; items: unknown[] }>(
-        "/orders/public",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            branchId,
-            tableId: tableId ?? undefined,
-            orderType,
-            deliveryAddress: orderType === "DELIVERY" ? deliveryAddress.trim() : undefined,
-            customerId: customerId ?? undefined,
-            paxCount,
-            items: cartItems.map((i) => ({
-              menuItemId: i.menuItemId,
-              quantity: i.quantity,
-              variantId: i.variantId ?? undefined,
-              notes: i.notes,
-            })),
-          }),
-        }
-      )
-      // Store full order for tracker page (no customer-facing GET endpoint yet)
-      if (typeof window !== "undefined") {
-        localStorage.setItem("pk-last-order", JSON.stringify(order))
-      }
-      clearCart()
-      toast.success(`Order ${order.orderNumber} placed! 🎉`)
-      router.push(`/order/${order.id}`)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to place order")
-    } finally {
-      setPlacing(false)
-    }
+    router.push("/checkout")
   }
 
   async function sendChatMessage(e: React.FormEvent) {
@@ -326,18 +242,27 @@ export default function MenuPage() {
           <h1 className="text-lg font-bold text-gray-900">🐼 Pandas Kitchen</h1>
           {tableId && <p className="text-xs text-gray-500">Table {tableId}</p>}
         </div>
-        <button
-          onClick={() => setCartOpen(true)}
-          className="relative bg-orange-500 text-white rounded-full p-2"
-          aria-label="Open cart"
-        >
-          <ShoppingCart className="w-5 h-5" />
-          {cartCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-              {cartCount}
-            </span>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push(`/account/${restaurantId}`)}
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+            aria-label="Account"
+          >
+            <User className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => setCartOpen(true)}
+            className="relative bg-orange-500 text-white rounded-full p-2"
+            aria-label="Open cart"
+          >
+            <ShoppingCart className="w-5 h-5" />
+            {cartCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {cartCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Search */}
@@ -521,68 +446,11 @@ export default function MenuPage() {
               </button>
             </div>
 
-            {/* Order type selector */}
-            <div className="flex gap-2 mb-3">
-              <button
-                onClick={() => setOrderType("DINE_IN")}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                  orderType === "DINE_IN"
-                    ? "bg-orange-500 text-white border-orange-500"
-                    : "bg-white text-gray-600 border-gray-200"
-                }`}
-              >
-                🪑 Dine In
-              </button>
-              <button
-                onClick={() => setOrderType("DELIVERY")}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium border transition-colors ${
-                  orderType === "DELIVERY"
-                    ? "bg-orange-500 text-white border-orange-500"
-                    : "bg-white text-gray-600 border-gray-200"
-                }`}
-              >
-                🚚 Delivery
-              </button>
-            </div>
-
-            {/* Party size */}
-            <div className="flex items-center justify-between mb-3 px-1">
-              <span className="text-sm text-gray-600 font-medium">Party size</span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPaxCount(n => Math.max(1, n - 1))}
-                  className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center"
-                  aria-label="Decrease party size"
-                >
-                  <Minus className="w-3 h-3 text-gray-600" />
-                </button>
-                <span className="text-sm font-semibold w-5 text-center">{paxCount}</span>
-                <button
-                  onClick={() => setPaxCount(n => Math.min(20, n + 1))}
-                  className="w-7 h-7 bg-orange-500 rounded-full flex items-center justify-center"
-                  aria-label="Increase party size"
-                >
-                  <Plus className="w-3 h-3 text-white" />
-                </button>
-              </div>
-            </div>
-
-            {/* Dine-in table info */}
-            {orderType === "DINE_IN" && tableId && (
+            {/* Table info */}
+            {tableId && (
               <p className="text-xs text-gray-500 mb-3 text-center">
-                Ordering for <span className="font-semibold text-gray-700">Table {tableId}</span>
+                Table <span className="font-semibold text-gray-700">{tableId}</span>
               </p>
-            )}
-
-            {/* Delivery address */}
-            {orderType === "DELIVERY" && (
-              <textarea
-                rows={2}
-                value={deliveryAddress}
-                onChange={(e) => setDeliveryAddress(e.target.value)}
-                placeholder="Enter your delivery address…"
-                className="w-full mb-3 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
-              />
             )}
             <div className="overflow-y-auto flex-1 space-y-3 mb-4">
               {cartItems.length === 0 && (
@@ -651,72 +519,13 @@ export default function MenuPage() {
                 <span className="font-bold text-lg text-gray-900">₹{total().toFixed(2)}</span>
               </div>
               <button
-                onClick={handlePlaceOrderClick}
-                disabled={cartItems.length === 0 || placing}
-                className="w-full bg-orange-500 text-white rounded-xl py-3 font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
+                onClick={handleCheckout}
+                disabled={cartItems.length === 0}
+                className="w-full bg-orange-500 text-white rounded-xl py-3 font-semibold disabled:opacity-50"
               >
-                {placing && (
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                )}
-                Place Order
+                Proceed to Checkout
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Customer login modal */}
-      {showLogin && (
-        <div
-          className="fixed inset-0 bg-black/60 z-[60] flex items-end"
-          onClick={() => setShowLogin(false)}
-        >
-          <div
-            className="bg-white rounded-t-2xl w-full p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <h3 className="text-lg font-bold text-gray-900">Quick Login</h3>
-              <button onClick={() => setShowLogin(false)} aria-label="Close login">
-                <X className="w-5 h-5 text-gray-400" />
-              </button>
-            </div>
-            <p className="text-sm text-gray-500 mb-5">We need your name and number to place the order.</p>
-
-            <form onSubmit={handleLoginSubmit} className="space-y-3">
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="Your first name"
-                  value={loginFirstName}
-                  onChange={(e) => setLoginFirstName(e.target.value)}
-                  required
-                  autoFocus
-                />
-              </div>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  className="w-full pl-9 pr-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  placeholder="10-digit phone number"
-                  value={loginPhone}
-                  onChange={(e) => setLoginPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
-                  inputMode="numeric"
-                  required
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loginLoading}
-                className="w-full bg-orange-500 text-white rounded-xl py-3 font-semibold disabled:opacity-50 flex items-center justify-center gap-2 mt-1"
-              >
-                {loginLoading && (
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                )}
-                Continue &amp; Place Order
-              </button>
-            </form>
           </div>
         </div>
       )}

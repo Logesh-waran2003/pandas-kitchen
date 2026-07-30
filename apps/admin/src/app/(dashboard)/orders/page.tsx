@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import { apiFetch } from "@/lib/api"
 import { formatCurrency, formatDate } from "@/lib/utils"
 import { toast } from "sonner"
-import { Plus, X, ChevronDown, Eye, ShoppingBag, ArrowRightLeft, Receipt, GitMerge } from "lucide-react"
+import { Plus, X, ChevronDown, Eye, ShoppingBag, ArrowRightLeft, Receipt, GitMerge, Pencil } from "lucide-react"
 import { getSocket } from "@/lib/socket"
 import { useAuthStore } from "@/stores/auth.store"
 
@@ -456,6 +456,168 @@ function NewOrderModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   )
 }
 
+function EditOrderModal({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
+  const [lines, setLines] = useState<NewOrderLine[]>(
+    order.items.map((i) => ({ menuItemId: i.menuItemId, name: i.name, price: i.unitPrice, quantity: i.quantity, notes: i.notes ?? "" }))
+  )
+  const [menuItems, setMenuItems] = useState<MenuItemOption[]>([])
+  const [search, setSearch] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    apiFetch<MenuItemOption[]>("/menu/items").then(setMenuItems).catch(() => {})
+  }, [])
+
+  const filtered = search
+    ? menuItems.filter((m) => m.name.toLowerCase().includes(search.toLowerCase()))
+    : []
+
+  function addItem(item: MenuItemOption) {
+    setLines((prev) => {
+      const existing = prev.find((l) => l.menuItemId === item.id)
+      if (existing) return prev.map((l) => l.menuItemId === item.id ? { ...l, quantity: l.quantity + 1 } : l)
+      return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1, notes: "" }]
+    })
+    setSearch("")
+  }
+
+  function updateQty(idx: number, delta: number) {
+    setLines((prev) => {
+      const next = prev.map((l, i) => i === idx ? { ...l, quantity: Math.max(1, l.quantity + delta) } : l)
+      return next
+    })
+  }
+
+  function removeLine(idx: number) {
+    setLines((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const total = lines.reduce((sum, l) => sum + l.price * l.quantity, 0)
+
+  async function handleSave() {
+    if (lines.length === 0) { toast.error("Order must have at least one item"); return }
+    setSaving(true)
+    try {
+      await apiFetch(`/orders/${order.id}/edit`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          items: lines.map((l) => ({ menuItemId: l.menuItemId, quantity: l.quantity, notes: l.notes || undefined })),
+        }),
+      })
+      toast.success("Order updated")
+      onSaved()
+      onClose()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update order")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+
+  return (
+    <Modal title={`Edit Order #${order.orderNumber ?? order.id.slice(-6).toUpperCase()}`} onClose={onClose} wide>
+      <div className="space-y-4">
+        {/* Current items */}
+        {lines.length > 0 && (
+          <div className="border border-gray-100 rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="text-left px-3 py-2 text-gray-500 font-medium">Item</th>
+                  <th className="text-center px-2 py-2 text-gray-500 font-medium w-24">Qty</th>
+                  <th className="text-right px-3 py-2 text-gray-500 font-medium">Subtotal</th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line, i) => (
+                  <tr key={`${line.menuItemId}-${i}`} className="border-t border-gray-100">
+                    <td className="px-3 py-2">
+                      {line.name}
+                      <div className="text-xs text-gray-400">{formatCurrency(line.price)} ea</div>
+                    </td>
+                    <td className="px-2 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => updateQty(i, -1)}
+                          className="w-6 h-6 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 flex items-center justify-center text-sm"
+                        >−</button>
+                        <span className="w-5 text-center">{line.quantity}</span>
+                        <button
+                          type="button"
+                          onClick={() => updateQty(i, 1)}
+                          className="w-6 h-6 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 flex items-center justify-center text-sm"
+                        >+</button>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium">{formatCurrency(line.price * line.quantity)}</td>
+                    <td className="px-1">
+                      <button type="button" onClick={() => removeLine(i)} className="text-gray-400 hover:text-red-500 p-1">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-gray-200 bg-gray-50">
+                  <td colSpan={2} className="px-3 py-2 font-semibold text-right text-gray-700">Total</td>
+                  <td className="px-3 py-2 text-right font-bold text-orange-600">{formatCurrency(total)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+
+        {/* Add item search */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Add Item</label>
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search menu items…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className={inputCls}
+            />
+            {filtered.length > 0 && (
+              <div className="absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-10 max-h-40 overflow-y-auto">
+                {filtered.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => addItem(item)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-orange-50 flex justify-between"
+                  >
+                    <span>{item.name}</span>
+                    <span className="text-gray-500">{formatCurrency(item.price)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 text-sm bg-orange-500 hover:bg-orange-600 text-white rounded-lg disabled:opacity-60"
+          >
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
@@ -466,6 +628,7 @@ export default function OrdersPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [transferOrder, setTransferOrder] = useState<Order | null>(null)
   const [showMerge, setShowMerge] = useState(false)
+  const [editOrder, setEditOrder] = useState<Order | null>(null)
   const accessToken = useAuthStore((s) => s.accessToken)
 
   const load = useCallback(async () => {
@@ -473,8 +636,9 @@ export default function OrdersPage() {
     setError(null)
     try {
       const url = activeTab === "ALL" ? "/orders" : `/orders?status=${activeTab}`
-      const data = await apiFetch<Order[]>(url)
-      setOrders(data)
+      const res = await apiFetch<{ data: Order[]; meta: unknown } | Order[]>(url)
+      const orders = Array.isArray(res) ? res : (res as any).data ?? []
+      setOrders(orders)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load orders")
     } finally {
@@ -650,6 +814,15 @@ export default function OrdersPage() {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {["PENDING", "CONFIRMED"].includes(order.status) && (
+                          <button
+                            onClick={() => setEditOrder(order)}
+                            className="p-1.5 rounded hover:bg-gray-100 text-blue-500"
+                            title="Edit order"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                        )}
                         {order.status === "PAID" && (
                           <button
                             onClick={() => window.open(`/orders/${order.id}/receipt`, "_blank")}
@@ -710,6 +883,7 @@ export default function OrdersPage() {
 
       {viewOrder && <ViewOrderModal order={viewOrder} onClose={() => setViewOrder(null)} />}
       {showNewOrder && <NewOrderModal onClose={() => setShowNewOrder(false)} onCreated={load} />}
+      {editOrder && <EditOrderModal order={editOrder} onClose={() => setEditOrder(null)} onSaved={load} />}
       {transferOrder && <TransferTableModal order={transferOrder} onClose={() => setTransferOrder(null)} onTransferred={load} />}
       {showMerge && <MergeTablesModal orders={orders} onClose={() => setShowMerge(false)} onMerged={load} />}
     </div>

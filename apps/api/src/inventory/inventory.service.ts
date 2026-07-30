@@ -152,7 +152,47 @@ export class InventoryService {
     return { success: true }
   }
 
-  // ── Auto-deduct stock when an order is served / closed ───────────────────
+  // ── Auto-deduct / restore stock tied to an order ─────────────────────────
+
+  async restoreForOrder(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        items: {
+          include: {
+            menuItem: { include: { ingredients: true } },
+          },
+        },
+      },
+    })
+    if (!order) return
+
+    const restorations: Array<{ inventoryItemId: string; qty: number }> = []
+
+    for (const orderItem of order.items) {
+      for (const ingredient of (orderItem.menuItem?.ingredients ?? [])) {
+        const qty = Number(ingredient.quantity) * orderItem.quantity
+        const existing = restorations.find(r => r.inventoryItemId === ingredient.inventoryItemId)
+        if (existing) existing.qty += qty
+        else restorations.push({ inventoryItemId: ingredient.inventoryItemId, qty })
+      }
+    }
+
+    for (const r of restorations) {
+      await this.prisma.inventoryItem.update({
+        where: { id: r.inventoryItemId },
+        data: { currentStock: { increment: r.qty } },
+      })
+      await this.prisma.stockAdjustment.create({
+        data: {
+          inventoryItemId: r.inventoryItemId,
+          type: "RESTOCK",
+          quantity: r.qty,
+          note: `Restored for cancelled order ${orderId}`,
+        },
+      })
+    }
+  }
 
   async deductForOrder(orderId: string) {
     const order = await this.prisma.order.findUnique({

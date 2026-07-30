@@ -493,6 +493,9 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(false)
   const [branchesLoading, setBranchesLoading] = useState(true)
   const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
+
+  const PAGE_SIZE = 20
 
   const [showAdd, setShowAdd] = useState(false)
   const [editItem, setEditItem] = useState<InventoryItem | null>(null)
@@ -545,6 +548,12 @@ export default function InventoryPage() {
     item.name.toLowerCase().includes(search.toLowerCase())
   )
 
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const safePage = Math.min(page, totalPages || 1)
+  const pagedItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  const fromItem = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1
+  const toItem = Math.min(safePage * PAGE_SIZE, filtered.length)
+
   const lowStockCount = items.filter((i) => i.isLowStock).length
 
   return (
@@ -580,7 +589,7 @@ export default function InventoryPage() {
               type="text"
               placeholder="Search items…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => { setSearch(e.target.value); setPage(1) }}
               className="border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
             />
           </div>
@@ -631,7 +640,7 @@ export default function InventoryPage() {
                 </td>
               </tr>
             ) : (
-              filtered.map((item) => (
+              pagedItems.map((item) => (
                 <tr
                   key={item.id}
                   className={`border-b border-gray-100 hover:bg-gray-50 ${
@@ -696,6 +705,29 @@ export default function InventoryPage() {
             )}
           </tbody>
         </table>
+        {/* Pagination */}
+        {filtered.length > PAGE_SIZE && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 text-sm text-gray-500">
+            <span>Showing {fromItem}–{toItem} of {filtered.length} items</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Prev
+              </button>
+              <span className="text-gray-700 font-medium">{safePage} / {totalPages}</span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modals */}

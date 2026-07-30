@@ -47,6 +47,18 @@ export class AnalyticsController {
     return this.analyticsService.getDailyPnL(restaurantId, branchId, date)
   }
 
+  @Get("online-stats")
+  @ApiOperation({ summary: "Online order stats — counts, revenue, avg, pending" })
+  @ApiQuery({ name: "branchId", required: false })
+  @ApiQuery({ name: "date", required: false, description: "YYYY-MM-DD, defaults to today" })
+  getOnlineOrderStats(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Query("branchId") branchId?: string,
+    @Query("date") date?: string,
+  ) {
+    return this.analyticsService.getOnlineOrderStats(restaurantId, branchId, date)
+  }
+
   @Get("reports/:type")
   @ApiOperation({ summary: "Run a specific report: today-sales | daywise | item-wise | payment-modes | cancelled | customer-data" })
   @ApiQuery({ name: "restaurantId", required: false })

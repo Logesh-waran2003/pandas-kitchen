@@ -3,14 +3,21 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  UnauthorizedException,
 } from "@nestjs/common"
+import { JwtService } from "@nestjs/jwt"
+import * as bcrypt from "bcryptjs"
 import { PrismaService } from "../prisma/prisma.service"
 import { CreateCustomerDto } from "./dto/create-customer.dto"
 import { UpdateCustomerDto } from "./dto/update-customer.dto"
+import { CustomerRegisterDto, CustomerLoginDto, AddAddressDto } from "./dto/customer-auth.dto"
 
 @Injectable()
 export class CustomersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private jwt: JwtService,
+  ) {}
 
   async listCustomers(restaurantId: string, search?: string) {
     const where: any = { restaurantId, isActive: true }
@@ -106,6 +113,87 @@ export class CustomersService {
     if (customer.restaurantId !== restaurantId) throw new ForbiddenException()
 
     await this.prisma.customer.update({ where: { id }, data: { isActive: false } })
+    return { success: true }
+  }
+
+  async registerCustomer(restaurantId: string, dto: CustomerRegisterDto) {
+    // Guard: ensure restaurant exists
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } })
+    if (!restaurant) throw new NotFoundException("Restaurant not found")
+
+    const existing = await this.prisma.customer.findUnique({
+      where: { restaurantId_phone: { restaurantId, phone: dto.phone } },
+    })
+    if (existing) throw new ConflictException("A customer with this phone number already exists")
+
+    const passwordHash = await bcrypt.hash(dto.password, 10)
+    const customer = await this.prisma.customer.create({
+      data: { restaurantId, name: dto.name, phone: dto.phone, email: dto.email, passwordHash },
+    })
+
+    const token = this.jwt.sign(
+      { sub: customer.id, restaurantId, role: "CUSTOMER" },
+      { secret: process.env.JWT_SECRET, expiresIn: "30d" },
+    )
+
+    return { customer: this.serialize(customer), token }
+  }
+
+  async loginCustomer(restaurantId: string, dto: CustomerLoginDto) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { restaurantId_phone: { restaurantId, phone: dto.phone } },
+    })
+
+    if (!customer || !customer.passwordHash) {
+      throw new UnauthorizedException("Invalid credentials")
+    }
+
+    const valid = await bcrypt.compare(dto.password, customer.passwordHash)
+    if (!valid) throw new UnauthorizedException("Invalid credentials")
+
+    if (!customer.isActive) throw new UnauthorizedException("Account is inactive")
+
+    const token = this.jwt.sign(
+      { sub: customer.id, restaurantId, role: "CUSTOMER" },
+      { secret: process.env.JWT_SECRET, expiresIn: "30d" },
+    )
+
+    return { customer: this.serialize(customer), token }
+  }
+
+  async addAddress(customerId: string, dto: AddAddressDto) {
+    if (dto.isDefault) {
+      // Clear existing defaults for this customer
+      await this.prisma.customerAddress.updateMany({
+        where: { customerId, isDefault: true },
+        data: { isDefault: false },
+      })
+    }
+
+    return this.prisma.customerAddress.create({
+      data: {
+        customerId,
+        label: dto.label ?? "Home",
+        address: dto.address,
+        lat: dto.lat ?? null,
+        lng: dto.lng ?? null,
+        isDefault: dto.isDefault ?? false,
+      },
+    })
+  }
+
+  async getAddresses(customerId: string) {
+    return this.prisma.customerAddress.findMany({
+      where: { customerId },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+    })
+  }
+
+  async deleteAddress(customerId: string, addressId: string) {
+    const address = await this.prisma.customerAddress.findUnique({ where: { id: addressId } })
+    if (!address) throw new NotFoundException("Address not found")
+    if (address.customerId !== customerId) throw new ForbiddenException()
+    await this.prisma.customerAddress.delete({ where: { id: addressId } })
     return { success: true }
   }
 

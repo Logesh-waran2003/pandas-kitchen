@@ -16,6 +16,7 @@ import { CurrentUser } from "../auth/decorators/current-user.decorator"
 import { Public } from "../auth/decorators/public.decorator"
 import { CreateOrderDto } from "./dto/create-order.dto"
 import { UpdateOrderStatusDto } from "./dto/update-order-status.dto"
+import { EditOrderDto } from "./dto/edit-order.dto"
 
 @ApiTags("orders")
 @ApiBearerAuth()
@@ -29,6 +30,29 @@ export class OrdersController {
   @ApiOperation({ summary: "Public: place an order from QR table (no auth required)" })
   createPublicOrder(@Body() dto: CreateOrderDto) {
     return this.ordersService.createPublicOrder(dto)
+  }
+
+  @Public()
+  @Get("coupon/:restaurantId/:code")
+  @ApiOperation({ summary: "Public: validate a coupon code" })
+  @ApiQuery({ name: "subtotal", required: false, description: "Order subtotal for min-value check" })
+  validateCoupon(
+    @Param("restaurantId") restaurantId: string,
+    @Param("code") code: string,
+    @Query("subtotal") subtotal?: string,
+  ) {
+    return this.ordersService.validateCoupon(restaurantId, code, subtotal ? Number(subtotal) : 0)
+  }
+
+  @Public()
+  @Patch(":id/rating")
+  @ApiOperation({ summary: "Customer: submit star rating for a served order" })
+  submitRating(
+    @Param("id") id: string,
+    @Body("rating") rating: number,
+    @Body("customerId") customerId: string,
+  ) {
+    return this.ordersService.submitRating(id, rating, customerId)
   }
 
   @Public()
@@ -48,6 +72,8 @@ export class OrdersController {
   @ApiQuery({ name: "date", required: false, description: "YYYY-MM-DD" })
   @ApiQuery({ name: "page", required: false, description: "Page number (default: 1)" })
   @ApiQuery({ name: "limit", required: false, description: "Items per page (default: 20, max: 100)" })
+  @ApiQuery({ name: "orderType", required: false, enum: ["DINE_IN", "TAKEAWAY", "DELIVERY"] })
+  @ApiQuery({ name: "orderSource", required: false, enum: ["POS", "QR_TABLE", "ONLINE"] })
   listOrders(
     @CurrentUser("restaurantId") restaurantId: string,
     @Query("branchId") branchId?: string,
@@ -55,6 +81,8 @@ export class OrdersController {
     @Query("date") date?: string,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
+    @Query("orderType") orderType?: string,
+    @Query("orderSource") orderSource?: string,
   ) {
     return this.ordersService.listOrders(
       restaurantId,
@@ -63,7 +91,20 @@ export class OrdersController {
       date,
       page ? Number(page) : undefined,
       limit ? Number(limit) : undefined,
+      orderType,
+      orderSource,
     )
+  }
+
+  @Public()
+  @Get("by-customer/:customerId")
+  @ApiOperation({ summary: "Public: get order history for a customer" })
+  @ApiQuery({ name: "limit", required: false, description: "Max orders to return (default: 20, max: 50)" })
+  getCustomerOrders(
+    @Param("customerId") customerId: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.ordersService.getCustomerOrders(customerId, limit ? parseInt(limit) : 20)
   }
 
   @Get(":id/receipt")
@@ -111,6 +152,16 @@ export class OrdersController {
     @Body() dto: UpdateOrderStatusDto,
   ) {
     return this.ordersService.updateStatus(restaurantId, id, dto)
+  }
+
+  @Patch(":id/edit")
+  @ApiOperation({ summary: "Edit items on a PENDING/CONFIRMED order" })
+  editOrder(
+    @CurrentUser("restaurantId") restaurantId: string,
+    @Param("id") id: string,
+    @Body() dto: EditOrderDto,
+  ) {
+    return this.ordersService.editOrder(restaurantId, id, dto)
   }
 
   @Delete(":id")

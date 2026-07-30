@@ -20,11 +20,13 @@ import {
   Clock,
   UserCog,
   CalendarDays,
+  Truck,
 } from "lucide-react"
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/orders", label: "Orders", icon: ShoppingBag },
+  { href: "/online-orders", label: "Online Orders", icon: Truck },
   { href: "/menu", label: "Menu", icon: UtensilsCrossed },
   { href: "/pos", label: "POS", icon: ShoppingCart },
   { href: "/kitchen", label: "Kitchen", icon: ChefHat },

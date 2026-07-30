@@ -322,11 +322,14 @@ function CustomerPanel({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 20
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  const [page, setPage] = useState(1)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [showModal, setShowModal] = useState(false)
@@ -354,6 +357,7 @@ export default function CustomersPage() {
 
   function handleSearchChange(value: string) {
     setSearch(value)
+    setPage(1)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
       loadCustomers(value)
@@ -468,6 +472,15 @@ export default function CustomersPage() {
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              {(() => {
+                const totalPages = Math.ceil(customers.length / PAGE_SIZE)
+                const safePage = Math.min(page, totalPages || 1)
+                const start = (safePage - 1) * PAGE_SIZE
+                const paged = customers.slice(start, start + PAGE_SIZE)
+                const from = customers.length === 0 ? 0 : start + 1
+                const to = Math.min(start + PAGE_SIZE, customers.length)
+                return (
+                  <>
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
@@ -482,7 +495,7 @@ export default function CustomersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {customers.map((customer) => (
+                  {paged.map((customer) => (
                     <tr key={customer.id} className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="px-5 py-3 font-medium text-gray-900">{customer.name}</td>
                       <td className="px-4 py-3 text-gray-600">{customer.phone}</td>
@@ -549,6 +562,32 @@ export default function CustomersPage() {
                   ))}
                 </tbody>
               </table>
+              {/* Pagination */}
+              {customers.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 text-sm text-gray-500">
+                  <span>Showing {from}–{to} of {customers.length} customers</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={safePage <= 1}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Prev
+                    </button>
+                    <span className="text-gray-700 font-medium">{safePage} / {totalPages}</span>
+                    <button
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={safePage >= totalPages}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              )}
+                  </>
+                )
+              })()}
             </div>
           )}
         </>

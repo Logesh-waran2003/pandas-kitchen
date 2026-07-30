@@ -40,7 +40,7 @@ describe("CustomersService", () => {
 
   beforeEach(() => {
     prisma = makePrisma()
-    service = new CustomersService(prisma as any)
+    service = new CustomersService(prisma as any, { sign: jest.fn().mockReturnValue("tok") } as any)
   })
 
   // ── getCustomerOrders ──────────────────────────────────────────────────────

@@ -117,6 +117,7 @@ export class CustomersService {
   }
 
   async registerCustomer(restaurantId: string, dto: CustomerRegisterDto) {
+    if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not set')
     // Guard: ensure restaurant exists
     const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } })
     if (!restaurant) throw new NotFoundException("Restaurant not found")
@@ -140,6 +141,7 @@ export class CustomersService {
   }
 
   async loginCustomer(restaurantId: string, dto: CustomerLoginDto) {
+    if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET not set')
     const customer = await this.prisma.customer.findUnique({
       where: { restaurantId_phone: { restaurantId, phone: dto.phone } },
     })

@@ -338,6 +338,7 @@ export default function OrderTrackerPage() {
         menuItemId: item.menuItem?.id ?? item.id,
         name,
         price: Number(item.unitPrice),
+        basePrice: Number(item.unitPrice),
         quantity: item.quantity,
         variantId: item.variantId ?? undefined,
         variantName: item.variantName ?? undefined,

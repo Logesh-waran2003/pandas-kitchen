@@ -99,7 +99,7 @@ async function main() {
 
   await prisma.restaurantOnlineSettings.upsert({
     where: { restaurantId: restaurant.id },
-    update: {},
+    update: { minOrderValue: 0 },
     create: {
       restaurantId: restaurant.id,
       onlineOrderingEnabled: true,
@@ -110,7 +110,7 @@ async function main() {
       serviceChargePercent: 5,
       estimatedPrepMins: 20,
       pickupPrepMins: 15,
-      minOrderValue: 100,
+      minOrderValue: 0,
     },
   })
 

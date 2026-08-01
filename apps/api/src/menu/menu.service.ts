@@ -330,6 +330,9 @@ export class MenuService {
           addonGroups: item.addonGroups.map((link) => ({
             id: link.addonGroup.id,
             name: link.addonGroup.name,
+            minSelect: link.addonGroup.minSelect,
+            maxSelect: link.addonGroup.maxSelect,
+            isRequired: link.addonGroup.isRequired,
             addons: link.addonGroup.addons.map((a) => ({
               id: a.id,
               name: a.name,

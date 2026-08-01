@@ -78,12 +78,11 @@ export class AuthService implements OnModuleInit {
     const expiresAt = new Date()
     expiresAt.setDate(expiresAt.getDate() + 30)
 
-    // Clean up expired sessions for this user before creating new one
+    // Delete ALL existing sessions for this user before creating a new one.
+    // This prevents unique-constraint conflicts on refreshToken when the same
+    // user logs in rapidly (e.g. test suites) and the previous JWT is still valid.
     await this.prisma.session.deleteMany({
-      where: {
-        userId: user.id,
-        expiresAt: { lt: new Date() },
-      },
+      where: { userId: user.id },
     })
 
     await this.prisma.session.create({

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { ChevronLeft, Tag, X } from "lucide-react"
+import { ChevronLeft, Tag, X, Star } from "lucide-react"
 import { useCartStore } from "@/stores/cart.store"
 import OrderTypeSelector from "@/components/OrderTypeSelector"
 import { fetchOnlineSettings, OnlineSettings } from "@/lib/online-settings"
@@ -37,6 +37,7 @@ export default function CheckoutPage() {
     tip,
     couponCode,
     couponDiscount,
+    loyaltyPointsRedeem,
     customerName,
     customerPhone,
     customerEmail,
@@ -47,8 +48,13 @@ export default function CheckoutPage() {
     setTip,
     applyCoupon,
     clearCoupon,
+    setLoyaltyPointsRedeem,
     setCustomerDetails,
   } = useCartStore()
+
+  // Loyalty
+  const [loyaltyBalance, setLoyaltyBalance] = useState<{ points: number; valueInRupees: number } | null>(null)
+  const [loyaltyApplied, setLoyaltyApplied] = useState(false)
 
   const [settings, setSettings] = useState<OnlineSettings | null>(null)
   const [settingsLoading, setSettingsLoading] = useState(true)
@@ -89,6 +95,20 @@ export default function CheckoutPage() {
       .then(setSettings)
       .catch(() => { /* non-fatal */ })
       .finally(() => setSettingsLoading(false))
+  }, [restaurantId])
+
+  // Fetch loyalty balance if logged in
+  useEffect(() => {
+    if (!restaurantId) return
+    const auth = getCustomerAuth()
+    if (!auth?.token || !auth?.customerId) return
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api/v1"
+    fetch(`${API_BASE}/customers/me/loyalty-balance/${restaurantId}`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setLoyaltyBalance(data) })
+      .catch(() => { /* non-fatal */ })
   }, [restaurantId])
 
   useEffect(() => {
@@ -134,6 +154,7 @@ export default function CheckoutPage() {
   }, [orderType])
 
   const subtotal = total()
+  const gstRate = settings?.gstRate ?? 5
   const serviceCharge = settings
     ? Math.round(subtotal * (settings.serviceChargePercent / 100) * 100) / 100
     : 0
@@ -142,9 +163,12 @@ export default function CheckoutPage() {
     orderType === "TAKEAWAY" || orderType === "DELIVERY"
       ? (settings?.packagingFee ?? 0)
       : 0
-  const tax = Math.round(subtotal * 0.05 * 100) / 100
+  const tax = Math.round(subtotal * (gstRate / 100) * 100) / 100
+  const loyaltyDiscount = loyaltyApplied && loyaltyBalance
+    ? Math.min(loyaltyBalance.valueInRupees, subtotal)
+    : 0
   const grandTotal =
-    subtotal + tax + serviceCharge + deliveryFee + packagingFee + tip - couponDiscount
+    subtotal + tax + serviceCharge + deliveryFee + packagingFee + tip - couponDiscount - loyaltyDiscount
 
   function minScheduleDateTime(): string {
     const d = new Date(Date.now() + 30 * 60 * 1000)
@@ -231,15 +255,17 @@ export default function CheckoutPage() {
           menuItemId: i.menuItemId,
           quantity: i.quantity,
           variantId: i.variantId ?? undefined,
+          addonIds: i.addons && i.addons.length > 0 ? i.addons.map((a) => a.id) : undefined,
           notes: i.notes,
         })),
         tip: tip > 0 ? tip : undefined,
         couponCode: couponCode ?? undefined,
+        loyaltyPointsRedeem: loyaltyApplied && loyaltyBalance ? loyaltyBalance.points : undefined,
         deliveryFee: deliveryFee > 0 ? deliveryFee : undefined,
         packagingFee: packagingFee > 0 ? packagingFee : undefined,
         scheduledFor: scheduledFor ?? undefined,
         serviceChargePercent: settings?.serviceChargePercent ?? 0,
-        gstRate: 5,
+        gstRate: settings?.gstRate ?? 5,
       }
 
       if (orderType === "DELIVERY") {
@@ -589,6 +615,46 @@ export default function CheckoutPage() {
           )}
         </div>
 
+        {/* Loyalty points */}
+        {loyaltyBalance && loyaltyBalance.points > 0 && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              Loyalty Points
+            </h2>
+            <div className="flex items-center justify-between bg-yellow-50 border border-yellow-200 rounded-xl px-3 py-3">
+              <div className="flex items-center gap-2">
+                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">
+                    {loyaltyBalance.points} points
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Worth ₹{loyaltyBalance.valueInRupees.toFixed(2)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setLoyaltyApplied(!loyaltyApplied)
+                  setLoyaltyPointsRedeem(loyaltyApplied ? 0 : loyaltyBalance.points)
+                }}
+                className={`px-3 py-1.5 rounded-xl text-sm font-semibold transition-colors ${
+                  loyaltyApplied
+                    ? "bg-yellow-500 text-white"
+                    : "bg-white border border-yellow-400 text-yellow-700 hover:bg-yellow-50"
+                }`}
+              >
+                {loyaltyApplied ? "Applied ✓" : "Apply"}
+              </button>
+            </div>
+            {loyaltyApplied && (
+              <p className="text-xs text-green-600 font-medium mt-2">
+                −₹{Math.min(loyaltyBalance.valueInRupees, subtotal).toFixed(2)} discount applied
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Payment method — TAKEAWAY or DELIVERY only */}
         {(orderType === "TAKEAWAY" || orderType === "DELIVERY") && (
           <div className="bg-white rounded-2xl p-4 shadow-sm">
@@ -617,7 +683,7 @@ export default function CheckoutPage() {
               <span>₹{subtotal.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm text-gray-600">
-              <span>Tax (5%)</span>
+              <span>Tax ({gstRate}%)</span>
               <span>₹{tax.toFixed(2)}</span>
             </div>
             {serviceCharge > 0 && (
@@ -648,6 +714,12 @@ export default function CheckoutPage() {
               <div className="flex justify-between text-sm text-green-600">
                 <span>Coupon discount</span>
                 <span>−₹{couponDiscount.toFixed(2)}</span>
+              </div>
+            )}
+            {loyaltyDiscount > 0 && (
+              <div className="flex justify-between text-sm text-yellow-600">
+                <span>Loyalty points</span>
+                <span>−₹{loyaltyDiscount.toFixed(2)}</span>
               </div>
             )}
             <div className="border-t border-gray-100 pt-2 flex justify-between text-base font-bold text-gray-900">

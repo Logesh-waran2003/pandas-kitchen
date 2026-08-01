@@ -131,6 +131,12 @@ export class CreateOrderDto {
   @IsString()
   couponCode?: string
 
+  @ApiPropertyOptional({ example: 100, description: "Loyalty points to redeem" })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  loyaltyPointsRedeem?: number
+
   @ApiPropertyOptional({ enum: ["POS", "QR_TABLE", "ONLINE"], default: "QR_TABLE" })
   @IsOptional()
   @IsEnum(["POS", "QR_TABLE", "ONLINE"])

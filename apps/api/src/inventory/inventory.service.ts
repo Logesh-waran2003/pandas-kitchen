@@ -82,12 +82,12 @@ export class InventoryService {
       throw new BadRequestException("Insufficient stock")
     }
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.inventoryItem.update({
+    const [updated] = await this.prisma.$transaction(async (tx) => {
+      const updatedItem = await tx.inventoryItem.update({
         where: { id },
         data: { currentStock: newStock },
-      }),
-      this.prisma.stockAdjustment.create({
+      })
+      const adjustment = await tx.stockAdjustment.create({
         data: {
           inventoryItemId: id,
           type: dto.type,
@@ -95,8 +95,25 @@ export class InventoryService {
           note: dto.note,
           createdById: userId,
         },
-      }),
-    ])
+      })
+
+      // BUG-H03: auto-disable linked menu items when stock hits zero
+      if (newStock.lte(0) && (dto.type === "MANUAL_DEDUCTION" || dto.type === "WASTE" || dto.type === "ORDER_DEDUCTION")) {
+        const ingredients = await tx.menuItemIngredient.findMany({
+          where: { inventoryItemId: id },
+          select: { menuItemId: true },
+        })
+        if (ingredients.length > 0) {
+          const menuItemIds = ingredients.map((ing) => ing.menuItemId)
+          await tx.menuItem.updateMany({
+            where: { id: { in: menuItemIds }, isAvailable: true },
+            data: { isAvailable: false },
+          })
+        }
+      }
+
+      return [updatedItem, adjustment]
+    })
 
     return this.serialize(updated)
   }

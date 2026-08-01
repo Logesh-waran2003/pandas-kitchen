@@ -172,6 +172,13 @@ export class OrdersService {
       throw new BadRequestException("Delivery address required for delivery orders")
     }
 
+    // Validate minOrderValue against settings before any DB-heavy work
+    const settingsForValidation = await this.prisma.restaurantOnlineSettings.findUnique({
+      where: { restaurantId },
+      select: { minOrderValue: true },
+    })
+    // (subtotal not yet computed — we need item prices for that; skip here and re-check after line items are built)
+
     const branch = await this.prisma.branch.findUnique({ where: { id: dto.branchId } })
     if (!branch || branch.restaurantId !== restaurantId) {
       throw new ForbiddenException("Branch not found or access denied")
@@ -270,6 +277,16 @@ export class OrdersService {
 
     // Pricing calculations
     const subtotal = lineItems.reduce((sum, i) => sum.add(i.totalPrice), new Decimal(0))
+
+    // BUG-M04: enforce minOrderValue from restaurant settings
+    if (settingsForValidation?.minOrderValue) {
+      const minVal = new Decimal(settingsForValidation.minOrderValue)
+      if (subtotal.lt(minVal)) {
+        throw new BadRequestException(
+          `Minimum order value is ₹${minVal.toFixed(2)}. Your subtotal is ₹${subtotal.toFixed(2)}.`
+        )
+      }
+    }
     const discountAmt = this.calcDiscount(subtotal, dto.discount ?? 0, dto.discountType ?? "FLAT")
     const afterDiscount = subtotal.sub(discountAmt)
     const serviceChargeRate = new Decimal(dto.serviceChargePercent ?? 0).div(100)
@@ -293,6 +310,22 @@ export class OrdersService {
       couponDiscount = new Decimal(result.discountAmount)
     }
 
+    // Validate loyalty redemption if provided
+    let loyaltyDiscount = new Decimal(0)
+    if (dto.loyaltyPointsRedeem && dto.loyaltyPointsRedeem > 0 && resolvedCustomerId) {
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: resolvedCustomerId },
+        select: { loyaltyPoints: true },
+      })
+      const settings = await this.prisma.restaurantOnlineSettings.findUnique({
+        where: { restaurantId },
+        select: { loyaltyRedemptionRate: true },
+      })
+      const pointsToRedeem = Math.min(dto.loyaltyPointsRedeem, customer?.loyaltyPoints ?? 0)
+      const rate = settings?.loyaltyRedemptionRate ?? 0.25
+      loyaltyDiscount = new Decimal(pointsToRedeem).mul(rate).toDecimalPlaces(2)
+    }
+
     const total = afterDiscount
       .add(serviceChargeAmt)
       .add(gstAmt)
@@ -300,6 +333,7 @@ export class OrdersService {
       .add(packagingFee)
       .add(tip)
       .sub(couponDiscount)
+      .sub(loyaltyDiscount)
       .toDecimalPlaces(2)
 
     // Generate pickup code for TAKEAWAY orders
@@ -392,6 +426,31 @@ export class OrdersService {
           })
         }
 
+        // Deduct loyalty points if redeemed
+        if (dto.loyaltyPointsRedeem && dto.loyaltyPointsRedeem > 0 && resolvedCustomerId) {
+          const customer = await tx.customer.findUnique({
+            where: { id: resolvedCustomerId },
+            select: { loyaltyPoints: true },
+          })
+          const pointsToRedeem = Math.min(dto.loyaltyPointsRedeem, customer?.loyaltyPoints ?? 0)
+          if (pointsToRedeem > 0) {
+            await tx.customer.update({
+              where: { id: resolvedCustomerId },
+              data: { loyaltyPoints: { decrement: pointsToRedeem } },
+            })
+            await tx.loyaltyTransaction.create({
+              data: {
+                customerId: resolvedCustomerId,
+                restaurantId,
+                orderId: created.id,
+                points: -pointsToRedeem,
+                type: "REDEEMED",
+                description: `Redeemed ${pointsToRedeem} points on order ${created.orderNumber}`,
+              },
+            })
+          }
+        }
+
         if (resolvedCustomerId) {
           await tx.customer.update({
             where: { id: resolvedCustomerId },
@@ -469,8 +528,9 @@ export class OrdersService {
   }
 
   async validateCoupon(restaurantId: string, code: string, subtotal: number) {
+    const normalizedCode = code.trim().toUpperCase()
     const coupon = await this.prisma.coupon.findUnique({
-      where: { restaurantId_code: { restaurantId, code } },
+      where: { restaurantId_code: { restaurantId, code: normalizedCode } },
     })
 
     if (!coupon) return { valid: false, coupon: null, discountAmount: 0, message: "Coupon not found" }

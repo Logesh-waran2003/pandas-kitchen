@@ -1,14 +1,24 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
+export interface CartAddon {
+  id: string
+  name: string
+  price: number
+}
+
 export interface CartItem {
   menuItemId: string
   name: string
-  price: number
+  price: number          // includes addon prices
+  basePrice: number      // item + variant price before addons
   quantity: number
   variantId?: string
   variantName?: string
+  addons?: CartAddon[]   // selected addons for this item
   notes?: string
+  // unique key for cart dedup (same item+variant+addons = merge, diff addons = separate)
+  cartKey: string
 }
 
 export type OrderType = "DINE_IN" | "TAKEAWAY" | "DELIVERY"
@@ -27,6 +37,7 @@ interface CartStore {
   tip: number
   couponCode: string | null
   couponDiscount: number
+  loyaltyPointsRedeem: number
   specialInstructions: string | null
 
   // Customer details
@@ -37,10 +48,10 @@ interface CartStore {
   // Actions — table/items
   setTable: (tableId: string, branchId: string, restaurantId: string) => void
   setOnlineContext: (branchId: string, restaurantId: string) => void
-  addItem: (item: CartItem) => void
-  removeItem: (menuItemId: string, variantId?: string) => void
-  updateQty: (menuItemId: string, variantId: string | undefined, delta: number) => void
-  updateNote: (menuItemId: string, variantId: string | undefined, notes: string) => void
+  addItem: (item: Omit<CartItem, "cartKey">) => void
+  removeItem: (cartKey: string) => void
+  updateQty: (cartKey: string, delta: number) => void
+  updateNote: (cartKey: string, notes: string) => void
   clearCart: () => void
   total: () => number
 
@@ -51,10 +62,18 @@ interface CartStore {
   setTip: (amount: number) => void
   applyCoupon: (code: string, discount: number) => void
   clearCoupon: () => void
+  setLoyaltyPointsRedeem: (points: number) => void
   setSpecialInstructions: (text: string | null) => void
 
   // Actions — customer details
   setCustomerDetails: (name: string, phone: string, email: string | null) => void
+}
+
+function buildCartKey(menuItemId: string, variantId?: string, addons?: CartAddon[]): string {
+  const addonPart = addons && addons.length > 0
+    ? addons.map((a) => a.id).sort().join(",")
+    : ""
+  return `${menuItemId}:${variantId ?? ""}:${addonPart}`
 }
 
 export const useCartStore = create<CartStore>()(
@@ -71,6 +90,7 @@ export const useCartStore = create<CartStore>()(
       tip: 0,
       couponCode: null,
       couponDiscount: 0,
+      loyaltyPointsRedeem: 0,
       specialInstructions: null,
 
       customerName: null,
@@ -86,46 +106,35 @@ export const useCartStore = create<CartStore>()(
 
       addItem: (item) =>
         set((s) => {
-          const existing = s.items.find(
-            (i) => i.menuItemId === item.menuItemId && i.variantId === item.variantId
-          )
+          const cartKey = buildCartKey(item.menuItemId, item.variantId, item.addons)
+          const existing = s.items.find((i) => i.cartKey === cartKey)
           if (existing) {
             return {
               items: s.items.map((i) =>
-                i.menuItemId === item.menuItemId && i.variantId === item.variantId
+                i.cartKey === cartKey
                   ? { ...i, quantity: i.quantity + item.quantity }
                   : i
               ),
             }
           }
-          return { items: [...s.items, item] }
+          return { items: [...s.items, { ...item, cartKey }] }
         }),
 
-      removeItem: (menuItemId, variantId) =>
+      removeItem: (cartKey) =>
         set((s) => ({
-          items: s.items.filter(
-            (i) => !(i.menuItemId === menuItemId && i.variantId === variantId)
-          ),
+          items: s.items.filter((i) => i.cartKey !== cartKey),
         })),
 
-      updateQty: (menuItemId, variantId, delta) =>
+      updateQty: (cartKey, delta) =>
         set((s) => ({
           items: s.items
-            .map((i) =>
-              i.menuItemId === menuItemId && i.variantId === variantId
-                ? { ...i, quantity: i.quantity + delta }
-                : i
-            )
+            .map((i) => i.cartKey === cartKey ? { ...i, quantity: i.quantity + delta } : i)
             .filter((i) => i.quantity > 0),
         })),
 
-      updateNote: (menuItemId, variantId, notes) =>
+      updateNote: (cartKey, notes) =>
         set((s) => ({
-          items: s.items.map((i) =>
-            i.menuItemId === menuItemId && i.variantId === variantId
-              ? { ...i, notes }
-              : i
-          ),
+          items: s.items.map((i) => i.cartKey === cartKey ? { ...i, notes } : i),
         })),
 
       clearCart: () =>
@@ -137,6 +146,7 @@ export const useCartStore = create<CartStore>()(
           tip: 0,
           couponCode: null,
           couponDiscount: 0,
+          loyaltyPointsRedeem: 0,
           specialInstructions: null,
         }),
 
@@ -151,16 +161,11 @@ export const useCartStore = create<CartStore>()(
       },
 
       setScheduledFor: (dt) => set({ scheduledFor: dt }),
-
       setDeliveryAddress: (addr) => set({ deliveryAddress: addr }),
-
       setTip: (amount) => set({ tip: amount }),
-
-      applyCoupon: (code, discount) =>
-        set({ couponCode: code, couponDiscount: discount }),
-
+      applyCoupon: (code, discount) => set({ couponCode: code, couponDiscount: discount }),
       clearCoupon: () => set({ couponCode: null, couponDiscount: 0 }),
-
+      setLoyaltyPointsRedeem: (points) => set({ loyaltyPointsRedeem: points }),
       setSpecialInstructions: (text) => set({ specialInstructions: text }),
 
       // ── Customer details ────────────────────────────────────────────────────

@@ -8,6 +8,9 @@ export interface OnlineSettings {
   estimatedPrepMins: number
   pickupPrepMins: number
   minOrderValue: number
+  gstRate: number
+  loyaltyPointsPerRupee: number
+  loyaltyRedemptionRate: number
 }
 
 export async function fetchOnlineSettings(restaurantId: string): Promise<OnlineSettings> {
@@ -16,5 +19,11 @@ export async function fetchOnlineSettings(restaurantId: string): Promise<OnlineS
     cache: "no-store",
   })
   if (!res.ok) throw new Error("Failed to fetch online settings")
-  return res.json()
+  const data = await res.json()
+  return {
+    ...data,
+    gstRate: data.gstRate ?? 5,
+    loyaltyPointsPerRupee: data.loyaltyPointsPerRupee ?? 1,
+    loyaltyRedemptionRate: data.loyaltyRedemptionRate ?? 0.25,
+  }
 }

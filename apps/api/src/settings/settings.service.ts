@@ -211,6 +211,7 @@ export class SettingsService {
       deliveryFee: Number(s.deliveryFee),
       packagingFee: Number(s.packagingFee),
       serviceChargePercent: Number(s.serviceChargePercent),
+      gstRate: Number(s.gstRate ?? 5),
       // loyaltyPointsPerRupee and loyaltyRedemptionRate are plain Float — no conversion needed
     }
   }

@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/api"
 import { useCartStore } from "@/stores/cart.store"
 import { toast } from "sonner"
-import { ShoppingCart, Plus, Minus, Search, X, Leaf, Truck, ShoppingBag } from "lucide-react"
+import { ShoppingCart, Plus, Minus, Search, X, Leaf, Truck, ShoppingBag, User } from "lucide-react"
 import ItemDetailSheet, { MenuItemDetail } from "@/components/ItemDetailSheet"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -312,18 +312,27 @@ function RestaurantPageInner() {
             {customerName && <p className="text-xs text-gray-400">Hi, {customerName.split(" ")[0]}!</p>}
           </div>
         </div>
-        <button
-          onClick={() => setCartOpen(true)}
-          className="relative bg-orange-500 text-white rounded-full p-2"
-          aria-label="Open cart"
-        >
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push(`/account/${info.id}`)}
+            className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+            aria-label="Account"
+          >
+            <User className="w-4 h-4 text-gray-600" />
+          </button>
+          <button
+            onClick={() => setCartOpen(true)}
+            className="relative bg-orange-500 text-white rounded-full p-2"
+            aria-label="Open cart"
+          >
           <ShoppingCart className="w-5 h-5" />
           {cartCount > 0 && (
             <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
               {cartCount}
             </span>
           )}
-        </button>
+          </button>
+        </div>
       </div>
 
       {/* Order type selector */}

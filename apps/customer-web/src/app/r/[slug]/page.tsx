@@ -4,8 +4,9 @@ import { useParams, useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/api"
 import { useCartStore } from "@/stores/cart.store"
 import { toast } from "sonner"
-import { ShoppingCart, Plus, Minus, Search, X, Leaf, Truck, ShoppingBag, User } from "lucide-react"
+import { ShoppingCart, Plus, Minus, Search, X, Leaf, Truck, ShoppingBag, User, LogOut } from "lucide-react"
 import ItemDetailSheet, { MenuItemDetail } from "@/components/ItemDetailSheet"
+import { useCustomerAuthStore } from "@/stores/customer-auth.store"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -136,7 +137,9 @@ function RestaurantPageInner() {
   const [selectedItem, setSelectedItem] = useState<MenuItem | null>(null)
   const [cartOpen, setCartOpen] = useState(false)
   const [expandedNoteItemKey, setExpandedNoteItemKey] = useState<string | null>(null)
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
 
+  const { clearAuth, isLoggedIn } = useCustomerAuthStore()
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0)
 
   // ── Restore session identity on mount ─────────────────────────────────────
@@ -313,13 +316,49 @@ function RestaurantPageInner() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => router.push(`/account/${info.id}`)}
-            className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
-            aria-label="Account"
-          >
-            <User className="w-4 h-4 text-gray-600" />
-          </button>
+          {/* Account icon — shows dropdown with logout */}
+          <div className="relative">
+            <button
+              onClick={() => setAccountMenuOpen((o) => !o)}
+              className="w-9 h-9 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 transition-colors"
+              aria-label="Account"
+            >
+              <User className="w-4 h-4 text-gray-600" />
+            </button>
+            {accountMenuOpen && (
+              <>
+                {/* backdrop */}
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setAccountMenuOpen(false)}
+                />
+                <div className="absolute right-0 top-11 z-50 bg-white rounded-xl shadow-lg border border-gray-100 min-w-[160px] overflow-hidden">
+                  <button
+                    onClick={() => { setAccountMenuOpen(false); router.push(`/account/${info.id}`) }}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    <User className="w-4 h-4 text-gray-500" />
+                    My Account
+                  </button>
+                  {isLoggedIn() && (
+                    <button
+                      onClick={() => {
+                        setAccountMenuOpen(false)
+                        clearAuth()
+                        sessionStorage.removeItem("pk-identity")
+                        setGated(true)
+                        toast.success("Logged out")
+                      }}
+                      className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-500 hover:bg-red-50 transition-colors border-t border-gray-100"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={() => setCartOpen(true)}
             className="relative bg-orange-500 text-white rounded-full p-2"

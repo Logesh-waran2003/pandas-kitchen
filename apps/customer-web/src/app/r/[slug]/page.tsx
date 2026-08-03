@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation"
 import { apiFetch } from "@/lib/api"
 import { useCartStore } from "@/stores/cart.store"
 import { toast } from "sonner"
-import { ShoppingCart, Plus, Minus, Search, X, Leaf, Truck, ShoppingBag, User, LogOut } from "lucide-react"
+import { ShoppingCart, Plus, Minus, Search, X, Leaf, Truck, ShoppingBag, User, LogOut, Utensils } from "lucide-react"
 import ItemDetailSheet, { MenuItemDetail } from "@/components/ItemDetailSheet"
 import { useCustomerAuthStore } from "@/stores/customer-auth.store"
 
@@ -340,21 +340,19 @@ function RestaurantPageInner() {
                     <User className="w-4 h-4 text-gray-500" />
                     My Account
                   </button>
-                  {isLoggedIn() && (
-                    <button
-                      onClick={() => {
-                        setAccountMenuOpen(false)
-                        clearAuth()
-                        sessionStorage.removeItem("pk-identity")
-                        setGated(true)
-                        toast.success("Logged out")
-                      }}
-                      className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-500 hover:bg-red-50 transition-colors border-t border-gray-100"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Logout
-                    </button>
-                  )}
+                  <button
+                    onClick={() => {
+                      setAccountMenuOpen(false)
+                      clearAuth()
+                      sessionStorage.removeItem("pk-identity")
+                      setGated(true)
+                      toast.success("Logged out")
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-500 hover:bg-red-50 transition-colors border-t border-gray-100"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
                 </div>
               </>
             )}
@@ -375,8 +373,15 @@ function RestaurantPageInner() {
       </div>
 
       {/* Order type selector */}
-      {(canDeliver || canTakeaway) && (
-        <div className="bg-white border-b border-gray-100 px-4 py-2 flex gap-2">
+      <div className="bg-white border-b border-gray-100 px-4 py-2 flex gap-2">
+          <button
+            onClick={() => setOrderType("DINE_IN")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+              orderType === "DINE_IN" ? "bg-orange-500 text-white border-orange-500" : "bg-white text-gray-600 border-gray-200"
+            }`}
+          >
+            <Utensils className="w-3.5 h-3.5" /> Dine In
+          </button>
           {canTakeaway && (
             <button
               onClick={() => setOrderType("TAKEAWAY")}
@@ -398,7 +403,6 @@ function RestaurantPageInner() {
             </button>
           )}
         </div>
-      )}
 
       {/* Search */}
       <div className="px-4 pt-3 pb-2 bg-white border-b border-gray-100">
